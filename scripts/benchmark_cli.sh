@@ -25,7 +25,15 @@ cleanup() {
 trap cleanup EXIT INT TERM
 mkdir -p "$tmpdir"
 
-cat > "$tmpdir/fixture.bpf.c" <<'EOF'
+example_dir="$root/examples/minimal"
+fixture_source="$tmpdir/fixture.bpf.c"
+fixture_object="$tmpdir/fixture.bpf.o"
+
+if [ -r "$example_dir/task_pid.bpf.c" ] && [ -r "$example_dir/local_types.h" ]; then
+  cp "$example_dir/task_pid.bpf.c" "$fixture_source"
+  cp "$example_dir/local_types.h" "$tmpdir/local_types.h"
+else
+  cat > "$fixture_source" <<'EOF'
 #define SEC(name) __attribute__((section(name), used))
 
 struct list_head {
@@ -47,11 +55,12 @@ int min_corehdr_bench(void *ctx)
 
 char _license[] SEC("license") = "GPL";
 EOF
+fi
 
 real_clang=$(clang -print-prog-name=clang)
-"$real_clang" -target bpf -g -O2 -c "$tmpdir/fixture.bpf.c" -o "$tmpdir/fixture.bpf.o"
+"$real_clang" -target bpf -g -O2 -I"$tmpdir" -c "$fixture_source" -o "$fixture_object"
 
-cmd="$tool --btf $kernel_btf -o $tmpdir/vmlinux.h $tmpdir/fixture.bpf.o"
+cmd="$tool --btf $kernel_btf -o $tmpdir/vmlinux.h $fixture_object"
 if command -v hyperfine >/dev/null 2>&1; then
   hyperfine --warmup 3 --runs 10 "$cmd"
 else
