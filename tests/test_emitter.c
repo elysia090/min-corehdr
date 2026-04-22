@@ -82,6 +82,10 @@ static int test_emitter_output_and_determinism(void) {
   int void_param_typedef_id;
   int array_id;
   int fwd_union_id;
+  int file_id;
+  int file_ptr_id;
+  int file_param_proto_id;
+  int file_callback_ptr_id;
   int root_id;
 
   mch_error_clear(&err);
@@ -159,8 +163,18 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(array_id > 0);
   fwd_union_id = btf__add_fwd(btf, "future_union", BTF_FWD_UNION);
   REQUIRE(fwd_union_id > 0);
+  file_id = btf__add_struct(btf, "file", 4);
+  REQUIRE(file_id > 0);
+  REQUIRE(btf__add_field(btf, "fd", int_id, 0, 0) == 0);
+  file_ptr_id = btf__add_ptr(btf, file_id);
+  REQUIRE(file_ptr_id > 0);
+  file_param_proto_id = btf__add_func_proto(btf, int_id);
+  REQUIRE(file_param_proto_id > 0);
+  REQUIRE(btf__add_func_param(btf, "file", file_ptr_id) == 0);
+  file_callback_ptr_id = btf__add_ptr(btf, file_param_proto_id);
+  REQUIRE(file_callback_ptr_id > 0);
 
-  root_id = btf__add_struct(btf, "root", 128);
+  root_id = btf__add_struct(btf, "root", 160);
   REQUIRE(root_id > 0);
   REQUIRE(btf__add_field(btf, "leaf", leaf_id, 0, 0) == 0);
   REQUIRE(btf__add_field(btf, "payload", union_id, 32, 0) == 0);
@@ -185,6 +199,7 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(btf__add_field(btf, "restricted", restrict_id, 880, 0) == 0);
   REQUIRE(btf__add_field(btf, "declared", decl_tag_id, 944, 0) == 0);
   REQUIRE(btf__add_field(btf, "future", fwd_union_id, 976, 0) == 0);
+  REQUIRE(btf__add_field(btf, "open", file_callback_ptr_id, 1024, 0) == 0);
 
   REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
   REQUIRE(mch_type_set_add(&required, (size_t)root_id));
@@ -223,6 +238,9 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(strstr(first, "int * volatile volatile_ptr;") != NULL);
   REQUIRE(strstr(first, "int * restrict restricted;") != NULL);
   REQUIRE(strstr(first, "int declared;") != NULL);
+  REQUIRE(strstr(first, "struct file;") != NULL);
+  REQUIRE(strstr(first, "struct file {") == NULL);
+  REQUIRE(strstr(first, "int (*open)(struct file *file);") != NULL);
   REQUIRE(strstr(first, "typedef int callback_t(void);") != NULL);
   REQUIRE(strstr(first, "typedef int void_param_t(void);") != NULL);
 

@@ -22,7 +22,7 @@ if ! command -v llvm-readelf >/dev/null 2>&1; then
   echo "skip: llvm-readelf is not available" >&2
   exit 77
 fi
-if [ ! -r "$example_dir/task_pid.bpf.c" ] || [ ! -r "$example_dir/local_types.h" ]; then
+if [ ! -r "$example_dir/exec_audit.bpf.c" ] || [ ! -r "$example_dir/local_types.h" ]; then
   echo "skip: minimal example sources are missing" >&2
   exit 77
 fi
@@ -47,29 +47,30 @@ finish() {
 trap finish EXIT INT TERM
 mkdir -p "$tmpdir/original" "$tmpdir/generated" "$tmpdir/recompiled"
 
-cp "$example_dir/task_pid.bpf.c" "$example_dir/local_types.h" "$tmpdir/original/"
+cp "$example_dir/exec_audit.bpf.c" "$example_dir/local_types.h" "$tmpdir/original/"
 
 real_clang=$(clang -print-prog-name=clang)
-"$real_clang" -target bpf -g -O2 -I"$tmpdir/original" -c "$tmpdir/original/task_pid.bpf.c" \
-  -o "$tmpdir/original/task_pid.bpf.o"
-llvm-readelf -S "$tmpdir/original/task_pid.bpf.o" | grep -Eq '\.BTF|\.BTF\.ext'
+bpf_cflags="-target bpf -g -O2 -Wall -Wextra -Werror"
+"$real_clang" $bpf_cflags -I"$tmpdir/original" -c "$tmpdir/original/exec_audit.bpf.c" \
+  -o "$tmpdir/original/exec_audit.bpf.o"
+llvm-readelf -S "$tmpdir/original/exec_audit.bpf.o" | grep -Eq '\.BTF|\.BTF\.ext'
 
 "$tool" --btf "$kernel_btf" --stats -o "$tmpdir/generated/local_types.h" \
-  "$tmpdir/original/task_pid.bpf.o" >"$tmpdir/stdout.txt" 2>"$tmpdir/stats.txt"
+  "$tmpdir/original/exec_audit.bpf.o" >"$tmpdir/stdout.txt" 2>"$tmpdir/stats.txt"
 
 test ! -s "$tmpdir/stdout.txt"
 grep -q 'preserve_access_index' "$tmpdir/generated/local_types.h"
 grep -q 'struct task_struct' "$tmpdir/generated/local_types.h"
 grep -q 'struct list_head' "$tmpdir/generated/local_types.h"
 grep -q 'struct mm_struct' "$tmpdir/generated/local_types.h"
-grep -q 'struct callback_head' "$tmpdir/generated/local_types.h"
+grep -q 'struct cred' "$tmpdir/generated/local_types.h"
 grep -q 'enum pid_type' "$tmpdir/generated/local_types.h"
-! grep -q 'struct local_event' "$tmpdir/generated/local_types.h"
+! grep -q 'struct exec_event' "$tmpdir/generated/local_types.h"
 grep -q 'CO-RE relocations:' "$tmpdir/stats.txt"
 grep -q 'emitted required types:' "$tmpdir/stats.txt"
 
-cp "$example_dir/task_pid.bpf.c" "$tmpdir/recompiled/"
+cp "$example_dir/exec_audit.bpf.c" "$tmpdir/recompiled/"
 cp "$tmpdir/generated/local_types.h" "$tmpdir/recompiled/local_types.h"
-"$real_clang" -target bpf -g -O2 -I"$tmpdir/recompiled" -c \
-  "$tmpdir/recompiled/task_pid.bpf.c" -o "$tmpdir/recompiled/task_pid.bpf.o"
-llvm-readelf -S "$tmpdir/recompiled/task_pid.bpf.o" | grep -Eq '\.BTF|\.BTF\.ext'
+"$real_clang" $bpf_cflags -I"$tmpdir/recompiled" -c \
+  "$tmpdir/recompiled/exec_audit.bpf.c" -o "$tmpdir/recompiled/exec_audit.bpf.o"
+llvm-readelf -S "$tmpdir/recompiled/exec_audit.bpf.o" | grep -Eq '\.BTF|\.BTF\.ext'

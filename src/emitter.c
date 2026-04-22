@@ -19,6 +19,7 @@ struct emit_ctx {
   const struct btf *btf;
   const struct mch_type_set *required;
   unsigned char *record_state;
+  unsigned char *fwd_state;
   size_t type_count;
   struct mch_error *err;
 };
@@ -362,6 +363,87 @@ static int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator, 
 
 static int emit_hard_deps(struct emit_ctx *ctx, __u32 id);
 
+static int emit_forward_decl(struct emit_ctx *ctx, __u32 id) {
+  const struct btf_type *type = type_by_id(ctx, id);
+  const char *name;
+  unsigned int kind;
+
+  if (type == NULL) {
+    return -1;
+  }
+
+  kind = btf_kind(type);
+  if (kind != BTF_KIND_STRUCT && kind != BTF_KIND_UNION && kind != BTF_KIND_FWD) {
+    return 0;
+  }
+
+  name = mch_btf_type_name(ctx->btf, type);
+  if (name[0] == '\0' || ctx->fwd_state[id] != 0) {
+    return 0;
+  }
+
+  fprintf(ctx->out, "%s %s;\n",
+          (kind == BTF_KIND_UNION || (kind == BTF_KIND_FWD && btf_kflag(type))) ? "union"
+                                                                                : "struct",
+          name);
+  ctx->fwd_state[id] = 1;
+  return 0;
+}
+
+static int emit_soft_deps(struct emit_ctx *ctx, __u32 id) {
+  const struct btf_type *type;
+  unsigned int kind;
+
+  if (id == 0) {
+    return 0;
+  }
+
+  type = type_by_id(ctx, id);
+  if (type == NULL) {
+    return -1;
+  }
+
+  kind = btf_kind(type);
+  switch (kind) {
+  case BTF_KIND_TYPEDEF:
+  case BTF_KIND_VOLATILE:
+  case BTF_KIND_CONST:
+  case BTF_KIND_RESTRICT:
+  case BTF_KIND_TYPE_TAG:
+  case BTF_KIND_DECL_TAG:
+  case BTF_KIND_PTR:
+    return emit_soft_deps(ctx, type->type);
+
+  case BTF_KIND_ARRAY: {
+    const struct btf_array *array = btf_array(type);
+    return emit_soft_deps(ctx, array->type);
+  }
+
+  case BTF_KIND_FUNC_PROTO: {
+    const struct btf_param *params = btf_params(type);
+    __u16 vlen = btf_vlen(type);
+
+    if (emit_soft_deps(ctx, type->type) != 0) {
+      return -1;
+    }
+    for (__u16 i = 0; i < vlen; i++) {
+      if (emit_soft_deps(ctx, params[i].type) != 0) {
+        return -1;
+      }
+    }
+    return 0;
+  }
+
+  case BTF_KIND_STRUCT:
+  case BTF_KIND_UNION:
+  case BTF_KIND_FWD:
+    return emit_forward_decl(ctx, id);
+
+  default:
+    return 0;
+  }
+}
+
 static int emit_record_definition(struct emit_ctx *ctx, __u32 id) {
   const struct btf_type *type = type_by_id(ctx, id);
   const struct btf_member *members;
@@ -412,9 +494,10 @@ static int emit_hard_deps(struct emit_ctx *ctx, __u32 id) {
   kind = btf_kind(type);
   switch (kind) {
   case BTF_KIND_PTR:
-  case BTF_KIND_FWD:
   case BTF_KIND_FUNC_PROTO:
-    return 0;
+    return emit_soft_deps(ctx, id);
+  case BTF_KIND_FWD:
+    return emit_forward_decl(ctx, id);
   case BTF_KIND_ARRAY: {
     const struct btf_array *array = btf_array(type);
     return emit_hard_deps(ctx, array->type);
@@ -597,6 +680,7 @@ int mch_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set 
       .btf = btf,
       .required = required,
       .record_state = NULL,
+      .fwd_state = NULL,
       .type_count = btf__type_cnt(btf),
       .err = err,
   };
@@ -606,6 +690,11 @@ int mch_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set 
   if (ctx.record_state == NULL) {
     mch_error_set(err, "out of memory while preparing header emission");
     return -1;
+  }
+  ctx.fwd_state = calloc(ctx.type_count == 0 ? 1 : ctx.type_count, sizeof(*ctx.fwd_state));
+  if (ctx.fwd_state == NULL) {
+    mch_error_set(err, "out of memory while preparing header forward declarations");
+    goto out;
   }
   if (emit_groups_init(&groups, required->selected, err) != 0) {
     goto out;
@@ -621,20 +710,9 @@ int mch_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set 
         out);
 
   for (size_t i = 0; i < groups.fwd_count; i++) {
-    __u32 id = groups.fwds[i];
-    const struct btf_type *type = type_by_id(&ctx, id);
-    const char *name;
-    unsigned int kind;
-
-    if (type == NULL) {
+    if (emit_forward_decl(&ctx, groups.fwds[i]) != 0) {
       goto out;
     }
-    kind = btf_kind(type);
-    name = mch_btf_type_name(btf, type);
-    fprintf(out, "%s %s;\n",
-            (kind == BTF_KIND_UNION || (kind == BTF_KIND_FWD && btf_kflag(type))) ? "union"
-                                                                                  : "struct",
-            name);
   }
   fputc('\n', out);
 
@@ -662,6 +740,7 @@ int mch_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set 
 
 out:
   emit_groups_destroy(&groups);
+  free(ctx.fwd_state);
   free(ctx.record_state);
   return rc;
 }

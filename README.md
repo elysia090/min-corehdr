@@ -48,9 +48,9 @@ cmake --build --preset dev --target format
 ## Try the Minimal Example
 
 For a first end-to-end run, use `examples/minimal`. It contains a small hand-written CO-RE
-`local_types.h` plus a BPF source that exercises field access, `sizeof`, enum usage, typedef
-chains, by-value embedded structs/unions, an anonymous nested record, and generated-header
-recompilation.
+`local_types.h` plus an `exec` tracepoint/ringbuf BPF source that exercises field access,
+`sizeof`, enum usage, typedef chains, by-value embedded structs/unions, an anonymous nested
+record, and generated-header recompilation.
 
 ```sh
 cmake --build --preset dev
@@ -80,7 +80,7 @@ Implemented now:
 - worklist-based conservative dependency closure over base BTF
 - initial C header emission with include guard, forward declarations, record definitions, enums, typedefs, and `preserve_access_index`
 - unit tests for CLI parsing, type sets, base BTF indexing, seed extraction, and dependency closure
-- checked-in minimal BPF example plus fixture-based integration tests for the SPEC compile-completeness matrix, multi-object union, deterministic output, generated-header recompilation, and unresolved CO-RE failure paths
+- checked-in practical BPF example plus fixture-based integration tests for the SPEC compile-completeness matrix, multi-object union, deterministic output, generated-header recompilation, and unresolved CO-RE failure paths
 - LLVM coverage and `hyperfine` benchmark scripts for standard measurement
 
 Next high-value work:

@@ -29,8 +29,8 @@ example_dir="$root/examples/minimal"
 fixture_source="$tmpdir/fixture.bpf.c"
 fixture_object="$tmpdir/fixture.bpf.o"
 
-if [ -r "$example_dir/task_pid.bpf.c" ] && [ -r "$example_dir/local_types.h" ]; then
-  cp "$example_dir/task_pid.bpf.c" "$fixture_source"
+if [ -r "$example_dir/exec_audit.bpf.c" ] && [ -r "$example_dir/local_types.h" ]; then
+  cp "$example_dir/exec_audit.bpf.c" "$fixture_source"
   cp "$example_dir/local_types.h" "$tmpdir/local_types.h"
 else
   cat > "$fixture_source" <<'EOF'

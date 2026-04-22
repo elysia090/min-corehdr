@@ -8,19 +8,28 @@ struct list_head {
   struct list_head *prev;
 } __pai;
 
-struct callback_head {
-  struct callback_head *next;
-  void (*func)(struct callback_head *head);
-} __pai;
+typedef unsigned int uid_t;
+typedef unsigned int gid_t;
+
+typedef struct {
+  uid_t val;
+} kuid_t;
+
+typedef struct {
+  gid_t val;
+} kgid_t;
 
 struct mm_struct {
-  struct {
-    struct {
-      struct {
-        int counter;
-      } mm_count;
-    };
-  };
+  unsigned long start_code;
+  unsigned long end_code;
+  unsigned long start_stack;
+  unsigned long arg_start;
+  unsigned long arg_end;
+} __pai;
+
+struct cred {
+  kuid_t uid;
+  kgid_t gid;
 } __pai;
 
 enum pid_type {
@@ -33,10 +42,12 @@ enum pid_type {
 
 struct task_struct {
   int pid;
+  int tgid;
   unsigned int flags;
+  char comm[16];
   struct list_head tasks;
   struct mm_struct *mm;
-  struct callback_head rcu;
+  const struct cred *real_cred;
 } __pai;
 
 #endif

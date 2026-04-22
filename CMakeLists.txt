@@ -30,7 +30,7 @@ set(MIN_COREHDR_LIB_SOURCES
 
 set(MIN_COREHDR_FORMAT_FILES
   examples/minimal/local_types.h
-  examples/minimal/task_pid.bpf.c
+  examples/minimal/exec_audit.bpf.c
   src/main.c
   ${MIN_COREHDR_LIB_SOURCES}
   ${MIN_COREHDR_HEADERS}
