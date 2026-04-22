@@ -1,7 +1,9 @@
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <bpf/btf.h>
 
@@ -14,22 +16,54 @@
 #include "min_corehdr/seeds.h"
 #include "min_corehdr/type_set.h"
 
+static FILE *open_temp_output(const char *path, char *tmp_path, size_t tmp_path_size,
+                              struct mch_error *err) {
+  long pid = (long)getpid();
+
+  for (unsigned int attempt = 0; attempt < 128; attempt++) {
+    int fd;
+    int n = snprintf(tmp_path, tmp_path_size, "%s.tmp.%ld.%u", path, pid, attempt);
+
+    if (n < 0 || (size_t)n >= tmp_path_size) {
+      mch_error_set(err, "output path is too long");
+      mch_error_set_file(err, path);
+      return NULL;
+    }
+
+    fd = open(tmp_path, O_WRONLY | O_CREAT | O_EXCL | O_TRUNC, 0666);
+    if (fd >= 0) {
+      FILE *out = fdopen(fd, "w");
+      if (out == NULL) {
+        int saved_errno = errno;
+        close(fd);
+        remove(tmp_path);
+        mch_error_set(err, "failed to open output: %s", strerror(saved_errno));
+        mch_error_set_file(err, path);
+        return NULL;
+      }
+      return out;
+    }
+
+    if (errno != EEXIST) {
+      mch_error_set(err, "failed to open output: %s", strerror(errno));
+      mch_error_set_file(err, path);
+      return NULL;
+    }
+  }
+
+  mch_error_set(err, "failed to create a unique temporary output path");
+  mch_error_set_file(err, path);
+  return NULL;
+}
+
 static int write_header_to_path(const char *path, const struct btf *btf,
                                 const struct mch_type_set *required, struct mch_error *err) {
   char tmp_path[1024];
   FILE *out;
   int rc;
 
-  if (snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path) >= (int)sizeof(tmp_path)) {
-    mch_error_set(err, "output path is too long");
-    mch_error_set_file(err, path);
-    return -1;
-  }
-
-  out = fopen(tmp_path, "w");
+  out = open_temp_output(path, tmp_path, sizeof(tmp_path), err);
   if (out == NULL) {
-    mch_error_set(err, "failed to open output: %s", strerror(errno));
-    mch_error_set_file(err, path);
     return -1;
   }
 

@@ -201,7 +201,7 @@ void mch_cli_print_help(FILE *out, const char *argv0) {
       out,
       "min-corehdr - generate a compile-complete minimal local CO-RE header from .bpf.o inputs\n");
   fprintf(out, "Usage:\n");
-  fprintf(out, "  %s [GLOBAL_OPTIONS] --btf FILE [COMMAND_OPTIONS] OBJECT...\n", prog);
+  fprintf(out, "  %s [OPTIONS] --btf FILE OBJECT...\n", prog);
   fprintf(out, "  %s --help\n", prog);
   fprintf(out, "  %s --version\n", prog);
   fprintf(out, "\nGlobal options:\n");

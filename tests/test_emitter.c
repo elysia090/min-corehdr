@@ -268,6 +268,59 @@ static int test_empty_required_output(void) {
   return 0;
 }
 
+static int test_typedef_function_pointer_forward_decl(void) {
+  struct mch_type_set required;
+  struct mch_closure_stats stats;
+  struct mch_error err;
+  struct btf *btf;
+  char *header = NULL;
+  const char *forward;
+  const char *typedef_decl;
+  int int_id;
+  int file_id;
+  int file_ptr_id;
+  int proto_id;
+  int proto_ptr_id;
+  int typedef_id;
+
+  mch_error_clear(&err);
+  mch_closure_stats_init(&stats);
+
+  btf = btf__new_empty();
+  REQUIRE(libbpf_get_error(btf) == 0);
+  int_id = btf__add_int(btf, "int", 4, BTF_INT_SIGNED);
+  REQUIRE(int_id > 0);
+  file_id = btf__add_struct(btf, "file", 4);
+  REQUIRE(file_id > 0);
+  REQUIRE(btf__add_field(btf, "fd", int_id, 0, 0) == 0);
+  file_ptr_id = btf__add_ptr(btf, file_id);
+  REQUIRE(file_ptr_id > 0);
+  proto_id = btf__add_func_proto(btf, int_id);
+  REQUIRE(proto_id > 0);
+  REQUIRE(btf__add_func_param(btf, "file", file_ptr_id) == 0);
+  proto_ptr_id = btf__add_ptr(btf, proto_id);
+  REQUIRE(proto_ptr_id > 0);
+  typedef_id = btf__add_typedef(btf, "file_handler_t", proto_ptr_id);
+  REQUIRE(typedef_id > 0);
+
+  REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
+  REQUIRE(mch_type_set_add(&required, (size_t)typedef_id));
+  REQUIRE(mch_compute_dependency_closure(btf, &required, &stats, &err) == 0);
+  REQUIRE(emit_to_string(btf, &required, &header) == 0);
+
+  forward = strstr(header, "struct file;");
+  typedef_decl = strstr(header, "typedef int (*file_handler_t)(struct file *file);");
+  REQUIRE(forward != NULL);
+  REQUIRE(typedef_decl != NULL);
+  REQUIRE(forward < typedef_decl);
+  REQUIRE(strstr(header, "struct file {") == NULL);
+
+  free(header);
+  mch_type_set_destroy(&required);
+  btf__free(btf);
+  return 0;
+}
+
 static int test_invalid_required_id_fails(void) {
   struct mch_type_set required;
   struct mch_error err;
@@ -332,6 +385,7 @@ static int test_unsupported_typedef_target_fails(void) {
 int main(void) {
   REQUIRE(test_emitter_output_and_determinism() == 0);
   REQUIRE(test_empty_required_output() == 0);
+  REQUIRE(test_typedef_function_pointer_forward_decl() == 0);
   REQUIRE(test_invalid_required_id_fails() == 0);
   REQUIRE(test_unsupported_typedef_target_fails() == 0);
   return 0;

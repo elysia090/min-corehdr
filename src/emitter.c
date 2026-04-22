@@ -587,6 +587,10 @@ static int emit_typedef_definition(struct emit_ctx *ctx, __u32 id) {
     return 0;
   }
 
+  if (emit_soft_deps(ctx, type->type) != 0) {
+    return -1;
+  }
+
   fputs("typedef ", ctx->out);
   if (emit_decl(ctx, type->type, name) != 0) {
     return -1;
