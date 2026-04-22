@@ -108,6 +108,26 @@ int main(void) {
   }
 
   {
+    char *argv[] = {"min-corehdr", "--output="};
+    REQUIRE(parse_fails(2, argv, "empty --output") == 0);
+  }
+
+  {
+    char *argv[] = {"min-corehdr", "--output", "", "--btf", "base.btf", "foo.bpf.o"};
+    REQUIRE(parse_fails(6, argv, "empty --output") == 0);
+  }
+
+  {
+    char *argv[] = {"min-corehdr", "-o", "", "--btf", "base.btf", "foo.bpf.o"};
+    REQUIRE(parse_fails(6, argv, "empty --output") == 0);
+  }
+
+  {
+    char *argv[] = {"min-corehdr", "--output=a.h", "-ob.h", "--btf", "base.btf", "foo.bpf.o"};
+    REQUIRE(parse_fails(6, argv, "duplicate --output") == 0);
+  }
+
+  {
     char *argv[] = {"min-corehdr",    "--quiet", "--verbose",
                     "--btf=base.btf", "--",      "-strange.bpf.o"};
     struct mch_cli_options opts;
