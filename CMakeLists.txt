@@ -29,6 +29,8 @@ set(MIN_COREHDR_LIB_SOURCES
 )
 
 set(MIN_COREHDR_FORMAT_FILES
+  examples/minimal/local_types.h
+  examples/minimal/exec_audit.bpf.c
   src/main.c
   ${MIN_COREHDR_LIB_SOURCES}
   ${MIN_COREHDR_HEADERS}
@@ -128,10 +130,12 @@ if(BUILD_TESTING)
   add_test(NAME error COMMAND test-error)
   add_test(NAME cli-smoke
     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_smoke.sh $<TARGET_FILE:min-corehdr>)
+  add_test(NAME example-smoke
+    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/example_smoke.sh $<TARGET_FILE:min-corehdr>)
   add_test(NAME spec-integration
     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/spec_integration.sh $<TARGET_FILE:min-corehdr>)
   add_test(NAME cli-unresolved
     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_unresolved.sh $<TARGET_FILE:min-corehdr>)
   set_tests_properties(cli-smoke PROPERTIES SKIP_RETURN_CODE 77)
-  set_tests_properties(spec-integration cli-unresolved PROPERTIES SKIP_RETURN_CODE 77)
+  set_tests_properties(example-smoke spec-integration cli-unresolved PROPERTIES SKIP_RETURN_CODE 77)
 endif()

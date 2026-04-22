@@ -46,10 +46,12 @@ EOF
 real_clang=$(clang -print-prog-name=clang)
 "$real_clang" -target bpf -g -O2 -c "$tmpdir/fixture.bpf.c" -o "$tmpdir/fixture.bpf.o"
 
+printf 'stale temp must survive\n' >"$tmpdir/vmlinux.h.tmp"
 "$tool" --btf "$kernel_btf" --stats -o "$tmpdir/vmlinux.h" "$tmpdir/fixture.bpf.o" \
   >"$tmpdir/min-corehdr.out" 2>"$tmpdir/min-corehdr.err"
 
 grep -q 'struct task_struct' "$tmpdir/vmlinux.h"
+grep -qx 'stale temp must survive' "$tmpdir/vmlinux.h.tmp"
 grep -q 'CO-RE relocations: 1' "$tmpdir/min-corehdr.err"
 
 cat > "$tmpdir/recompile.bpf.c" <<'EOF'

@@ -47,7 +47,7 @@ The repository name and binary name should match.
 
 4.1 Canonical Synopsis
 
-min-corehdr [GLOBAL_OPTIONS] --btf FILE [COMMAND_OPTIONS] OBJECT...
+min-corehdr [OPTIONS] --btf FILE OBJECT...
 min-corehdr [GLOBAL_OPTIONS] --help
 min-corehdr [GLOBAL_OPTIONS] --version
 
@@ -274,7 +274,7 @@ Suggested structure:
 
 min-corehdr — generate a compile-complete minimal local CO-RE header from .bpf.o inputs
 Usage:
-  min-corehdr [GLOBAL_OPTIONS] --btf FILE [COMMAND_OPTIONS] OBJECT...
+  min-corehdr [OPTIONS] --btf FILE OBJECT...
   min-corehdr --help
   min-corehdr --version
 Global options:

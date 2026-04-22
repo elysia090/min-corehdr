@@ -72,6 +72,8 @@ static int test_emitter_output_and_determinism(void) {
   int volatile_id;
   int type_tag_id;
   int int_ptr_id;
+  int const_ptr_id;
+  int volatile_ptr_id;
   int restrict_id;
   int decl_tag_id;
   int proto_id;
@@ -80,6 +82,10 @@ static int test_emitter_output_and_determinism(void) {
   int void_param_typedef_id;
   int array_id;
   int fwd_union_id;
+  int file_id;
+  int file_ptr_id;
+  int file_param_proto_id;
+  int file_callback_ptr_id;
   int root_id;
 
   mch_error_clear(&err);
@@ -136,6 +142,10 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(type_tag_id > 0);
   int_ptr_id = btf__add_ptr(btf, int_id);
   REQUIRE(int_ptr_id > 0);
+  const_ptr_id = btf__add_const(btf, int_ptr_id);
+  REQUIRE(const_ptr_id > 0);
+  volatile_ptr_id = btf__add_volatile(btf, int_ptr_id);
+  REQUIRE(volatile_ptr_id > 0);
   restrict_id = btf__add_restrict(btf, int_ptr_id);
   REQUIRE(restrict_id > 0);
   decl_tag_id = btf__add_decl_tag(btf, "declared", int_id, -1);
@@ -153,8 +163,18 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(array_id > 0);
   fwd_union_id = btf__add_fwd(btf, "future_union", BTF_FWD_UNION);
   REQUIRE(fwd_union_id > 0);
+  file_id = btf__add_struct(btf, "file", 4);
+  REQUIRE(file_id > 0);
+  REQUIRE(btf__add_field(btf, "fd", int_id, 0, 0) == 0);
+  file_ptr_id = btf__add_ptr(btf, file_id);
+  REQUIRE(file_ptr_id > 0);
+  file_param_proto_id = btf__add_func_proto(btf, int_id);
+  REQUIRE(file_param_proto_id > 0);
+  REQUIRE(btf__add_func_param(btf, "file", file_ptr_id) == 0);
+  file_callback_ptr_id = btf__add_ptr(btf, file_param_proto_id);
+  REQUIRE(file_callback_ptr_id > 0);
 
-  root_id = btf__add_struct(btf, "root", 24);
+  root_id = btf__add_struct(btf, "root", 160);
   REQUIRE(root_id > 0);
   REQUIRE(btf__add_field(btf, "leaf", leaf_id, 0, 0) == 0);
   REQUIRE(btf__add_field(btf, "payload", union_id, 32, 0) == 0);
@@ -174,9 +194,12 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(btf__add_field(btf, "extended", long_double_id, 528, 0) == 0);
   REQUIRE(btf__add_field(btf, "signed_wide", signed_enum64_id, 656, 0) == 0);
   REQUIRE(btf__add_field(btf, "anonymous_color", anon_enum_id, 720, 0) == 0);
-  REQUIRE(btf__add_field(btf, "restricted", restrict_id, 752, 0) == 0);
-  REQUIRE(btf__add_field(btf, "declared", decl_tag_id, 816, 0) == 0);
-  REQUIRE(btf__add_field(btf, "future", fwd_union_id, 848, 0) == 0);
+  REQUIRE(btf__add_field(btf, "constant_ptr", const_ptr_id, 752, 0) == 0);
+  REQUIRE(btf__add_field(btf, "volatile_ptr", volatile_ptr_id, 816, 0) == 0);
+  REQUIRE(btf__add_field(btf, "restricted", restrict_id, 880, 0) == 0);
+  REQUIRE(btf__add_field(btf, "declared", decl_tag_id, 944, 0) == 0);
+  REQUIRE(btf__add_field(btf, "future", fwd_union_id, 976, 0) == 0);
+  REQUIRE(btf__add_field(btf, "open", file_callback_ptr_id, 1024, 0) == 0);
 
   REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
   REQUIRE(mch_type_set_add(&required, (size_t)root_id));
@@ -211,8 +234,13 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(strstr(first, "int anonymous_color;") != NULL);
   REQUIRE(strstr(first, "const int constant;") != NULL);
   REQUIRE(strstr(first, "volatile int changing;") != NULL);
-  REQUIRE(strstr(first, "restrict int *restricted;") != NULL);
+  REQUIRE(strstr(first, "int * const constant_ptr;") != NULL);
+  REQUIRE(strstr(first, "int * volatile volatile_ptr;") != NULL);
+  REQUIRE(strstr(first, "int * restrict restricted;") != NULL);
   REQUIRE(strstr(first, "int declared;") != NULL);
+  REQUIRE(strstr(first, "struct file;") != NULL);
+  REQUIRE(strstr(first, "struct file {") == NULL);
+  REQUIRE(strstr(first, "int (*open)(struct file *file);") != NULL);
   REQUIRE(strstr(first, "typedef int callback_t(void);") != NULL);
   REQUIRE(strstr(first, "typedef int void_param_t(void);") != NULL);
 
@@ -233,6 +261,59 @@ static int test_empty_required_output(void) {
   REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
   REQUIRE(emit_to_string(btf, &required, &header) == 0);
   REQUIRE(strstr(header, "#endif") != NULL);
+
+  free(header);
+  mch_type_set_destroy(&required);
+  btf__free(btf);
+  return 0;
+}
+
+static int test_typedef_function_pointer_forward_decl(void) {
+  struct mch_type_set required;
+  struct mch_closure_stats stats;
+  struct mch_error err;
+  struct btf *btf;
+  char *header = NULL;
+  const char *forward;
+  const char *typedef_decl;
+  int int_id;
+  int file_id;
+  int file_ptr_id;
+  int proto_id;
+  int proto_ptr_id;
+  int typedef_id;
+
+  mch_error_clear(&err);
+  mch_closure_stats_init(&stats);
+
+  btf = btf__new_empty();
+  REQUIRE(libbpf_get_error(btf) == 0);
+  int_id = btf__add_int(btf, "int", 4, BTF_INT_SIGNED);
+  REQUIRE(int_id > 0);
+  file_id = btf__add_struct(btf, "file", 4);
+  REQUIRE(file_id > 0);
+  REQUIRE(btf__add_field(btf, "fd", int_id, 0, 0) == 0);
+  file_ptr_id = btf__add_ptr(btf, file_id);
+  REQUIRE(file_ptr_id > 0);
+  proto_id = btf__add_func_proto(btf, int_id);
+  REQUIRE(proto_id > 0);
+  REQUIRE(btf__add_func_param(btf, "file", file_ptr_id) == 0);
+  proto_ptr_id = btf__add_ptr(btf, proto_id);
+  REQUIRE(proto_ptr_id > 0);
+  typedef_id = btf__add_typedef(btf, "file_handler_t", proto_ptr_id);
+  REQUIRE(typedef_id > 0);
+
+  REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
+  REQUIRE(mch_type_set_add(&required, (size_t)typedef_id));
+  REQUIRE(mch_compute_dependency_closure(btf, &required, &stats, &err) == 0);
+  REQUIRE(emit_to_string(btf, &required, &header) == 0);
+
+  forward = strstr(header, "struct file;");
+  typedef_decl = strstr(header, "typedef int (*file_handler_t)(struct file *file);");
+  REQUIRE(forward != NULL);
+  REQUIRE(typedef_decl != NULL);
+  REQUIRE(forward < typedef_decl);
+  REQUIRE(strstr(header, "struct file {") == NULL);
 
   free(header);
   mch_type_set_destroy(&required);
@@ -304,6 +385,7 @@ static int test_unsupported_typedef_target_fails(void) {
 int main(void) {
   REQUIRE(test_emitter_output_and_determinism() == 0);
   REQUIRE(test_empty_required_output() == 0);
+  REQUIRE(test_typedef_function_pointer_forward_decl() == 0);
   REQUIRE(test_invalid_required_id_fails() == 0);
   REQUIRE(test_unsupported_typedef_target_fails() == 0);
   return 0;
