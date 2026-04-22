@@ -1,0 +1,8 @@
+build/
+result
+compile_commands.json
+*.o
+*.a
+*.so
+*.dylib
+*.exe

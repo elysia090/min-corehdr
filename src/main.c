@@ -1,0 +1,184 @@
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <bpf/btf.h>
+
+#include "min_corehdr/btf_index.h"
+#include "min_corehdr/btf_loader.h"
+#include "min_corehdr/cli.h"
+#include "min_corehdr/closure.h"
+#include "min_corehdr/emitter.h"
+#include "min_corehdr/error.h"
+#include "min_corehdr/seeds.h"
+#include "min_corehdr/type_set.h"
+
+static int write_header_to_path(const char *path, const struct btf *btf,
+                                const struct mch_type_set *required, struct mch_error *err) {
+  char tmp_path[1024];
+  FILE *out;
+  int rc;
+
+  if (snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path) >= (int)sizeof(tmp_path)) {
+    mch_error_set(err, "output path is too long");
+    mch_error_set_file(err, path);
+    return -1;
+  }
+
+  out = fopen(tmp_path, "w");
+  if (out == NULL) {
+    mch_error_set(err, "failed to open output: %s", strerror(errno));
+    mch_error_set_file(err, path);
+    return -1;
+  }
+
+  rc = mch_emit_header(out, btf, required, err);
+  if (fclose(out) != 0 && rc == 0) {
+    mch_error_set(err, "failed to close output: %s", strerror(errno));
+    mch_error_set_file(err, path);
+    rc = -1;
+  }
+  if (rc != 0) {
+    remove(tmp_path);
+    return -1;
+  }
+  if (rename(tmp_path, path) != 0) {
+    mch_error_set(err, "failed to replace output: %s", strerror(errno));
+    mch_error_set_file(err, path);
+    remove(tmp_path);
+    return -1;
+  }
+
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  struct mch_cli_options opts;
+  struct mch_error err;
+  struct mch_btf_doc base;
+  struct mch_btf_index base_index;
+  struct mch_type_set required;
+  struct mch_seed_stats seed_total;
+  struct mch_closure_stats closure_stats;
+  int rc = 1;
+
+  mch_error_clear(&err);
+  mch_cli_options_init(&opts);
+  mch_btf_doc_init(&base);
+  mch_btf_index_init_empty(&base_index);
+  memset(&required, 0, sizeof(required));
+  mch_seed_stats_init(&seed_total);
+  mch_closure_stats_init(&closure_stats);
+
+  if (mch_cli_parse(argc, argv, &opts, &err) != 0) {
+    mch_error_print(stderr, &err);
+    mch_cli_options_destroy(&opts);
+    return 2;
+  }
+
+  if (opts.help) {
+    mch_cli_print_help(stdout, argv[0]);
+    mch_cli_options_destroy(&opts);
+    return 0;
+  }
+  if (opts.version) {
+    mch_cli_print_version(stdout);
+    mch_cli_options_destroy(&opts);
+    return 0;
+  }
+
+  if (!opts.quiet && opts.verbose > 0) {
+    fprintf(stderr, "loading base BTF: %s\n", opts.btf_path);
+  }
+  if (mch_load_base_btf(opts.btf_path, &base, &err) != 0) {
+    goto out;
+  }
+  if (mch_btf_index_init(&base_index, base.btf, &err) != 0) {
+    goto out;
+  }
+  if (mch_type_set_init(&required, btf__type_cnt(base.btf)) != 0) {
+    mch_error_set(&err, "out of memory while preparing required type set");
+    goto out;
+  }
+
+  for (size_t i = 0; i < opts.object_count; i++) {
+    struct mch_btf_doc object;
+    struct mch_seed_stats stats;
+
+    mch_btf_doc_init(&object);
+    mch_seed_stats_init(&stats);
+
+    if (!opts.quiet && opts.verbose > 0) {
+      fprintf(stderr, "loading object BTF: %s\n", opts.objects[i]);
+    }
+    if (mch_load_object_btf(opts.objects[i], &object, &err) != 0) {
+      mch_btf_doc_destroy(&object);
+      goto out;
+    }
+    if (mch_extract_object_seeds(&base_index, object.btf, opts.objects[i], &required, &stats,
+                                 &err) != 0) {
+      mch_btf_doc_destroy(&object);
+      goto out;
+    }
+    if (mch_extract_core_relo_seeds(&base_index, object.btf, object.ext, opts.objects[i], &required,
+                                    &stats, &err) != 0) {
+      mch_btf_doc_destroy(&object);
+      goto out;
+    }
+
+    seed_total.candidates += stats.candidates;
+    seed_total.kernel_types += stats.kernel_types;
+    seed_total.program_local_types += stats.program_local_types;
+    seed_total.core_relocations += stats.core_relocations;
+    seed_total.core_kernel_types += stats.core_kernel_types;
+
+    if (!opts.quiet && opts.verbose > 1) {
+      fprintf(stderr,
+              "%s: %zu seed candidates, %zu kernel matches, %zu program-local, "
+              "%zu CO-RE relos, %zu CO-RE roots\n",
+              opts.objects[i], stats.candidates, stats.kernel_types, stats.program_local_types,
+              stats.core_relocations, stats.core_kernel_types);
+    }
+
+    mch_btf_doc_destroy(&object);
+  }
+
+  if (!opts.quiet && opts.verbose > 0) {
+    fprintf(stderr, "computing dependency closure\n");
+  }
+  if (mch_compute_dependency_closure(base.btf, &required, &closure_stats, &err) != 0) {
+    goto out;
+  }
+
+  if (opts.output_path != NULL) {
+    if (write_header_to_path(opts.output_path, base.btf, &required, &err) != 0) {
+      goto out;
+    }
+  } else if (mch_emit_header(stdout, base.btf, &required, &err) != 0) {
+    goto out;
+  }
+
+  if (opts.stats) {
+    fprintf(stderr, "objects: %zu\n", opts.object_count);
+    fprintf(stderr, "seed candidates: %zu\n", seed_total.candidates);
+    fprintf(stderr, "kernel seed types: %zu\n", seed_total.kernel_types);
+    fprintf(stderr, "program-local candidates: %zu\n", seed_total.program_local_types);
+    fprintf(stderr, "CO-RE relocations: %zu\n", seed_total.core_relocations);
+    fprintf(stderr, "CO-RE root types: %zu\n", seed_total.core_kernel_types);
+    fprintf(stderr, "emitted required types: %zu\n", required.selected);
+    fprintf(stderr, "closure additions: %zu\n", closure_stats.added_types);
+  }
+
+  rc = 0;
+
+out:
+  if (rc != 0) {
+    mch_error_print(stderr, &err);
+  }
+  mch_type_set_destroy(&required);
+  mch_btf_index_destroy(&base_index);
+  mch_btf_doc_destroy(&base);
+  mch_cli_options_destroy(&opts);
+  return rc;
+}
