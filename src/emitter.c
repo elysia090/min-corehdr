@@ -95,6 +95,67 @@ static const char *float_type_name(const struct btf_type *type) {
   }
 }
 
+static const char *type_qualifier_name(unsigned int kind) {
+  switch (kind) {
+  case BTF_KIND_CONST:
+    return "const";
+  case BTF_KIND_VOLATILE:
+    return "volatile";
+  case BTF_KIND_RESTRICT:
+    return "restrict";
+  default:
+    return NULL;
+  }
+}
+
+static int append_type_qualifier(char *buf, size_t size, const char *qualifier) {
+  size_t len = strlen(buf);
+  int n = snprintf(buf + len, size - len, "%s%s", len == 0 ? "" : " ", qualifier);
+
+  return n < 0 || (size_t)n >= size - len ? -1 : 0;
+}
+
+static int emit_qualified_decl(struct emit_ctx *ctx, __u32 id, const char *declarator,
+                               bool flexible_ok) {
+  char qualifiers[64] = "";
+  const struct btf_type *type;
+  const char *qualifier;
+  __u32 current = id;
+
+  for (;;) {
+    type = type_by_id(ctx, current);
+    if (type == NULL) {
+      return -1;
+    }
+
+    qualifier = type_qualifier_name(btf_kind(type));
+    if (qualifier == NULL) {
+      break;
+    }
+    if (append_type_qualifier(qualifiers, sizeof(qualifiers), qualifier) != 0) {
+      mch_error_set(ctx->err, "type qualifier chain is too long");
+      return -1;
+    }
+    current = type->type;
+  }
+
+  if (btf_kind(type) == BTF_KIND_PTR) {
+    char next[512];
+    int n = snprintf(next, sizeof(next), "* %s%s%s", qualifiers, declarator[0] != '\0' ? " " : "",
+                     declarator);
+
+    if (n < 0 || (size_t)n >= sizeof(next)) {
+      mch_error_set(ctx->err, "type declarator is too long");
+      return -1;
+    }
+    return emit_decl_ex(ctx, type->type, next, flexible_ok);
+  }
+
+  fputs(qualifiers, ctx->out);
+  fputc(' ', ctx->out);
+  return emit_decl_ex(ctx, current, declarator, flexible_ok);
+}
+
 static int emit_params(struct emit_ctx *ctx, const struct btf_type *proto) {
   const struct btf_param *params = btf_params(proto);
   __u16 vlen = btf_vlen(proto);
@@ -250,15 +311,10 @@ static int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator, 
     return emit_decl_ex(ctx, array->type, next, flexible_ok);
   }
 
-  case BTF_KIND_VOLATILE:
-    fputs("volatile ", ctx->out);
-    return emit_decl_ex(ctx, type->type, declarator, flexible_ok);
   case BTF_KIND_CONST:
-    fputs("const ", ctx->out);
-    return emit_decl_ex(ctx, type->type, declarator, flexible_ok);
+  case BTF_KIND_VOLATILE:
   case BTF_KIND_RESTRICT:
-    fputs("restrict ", ctx->out);
-    return emit_decl_ex(ctx, type->type, declarator, flexible_ok);
+    return emit_qualified_decl(ctx, id, declarator, flexible_ok);
   case BTF_KIND_TYPE_TAG:
   case BTF_KIND_DECL_TAG:
   case BTF_KIND_TYPEDEF:

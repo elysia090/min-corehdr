@@ -72,6 +72,8 @@ static int test_emitter_output_and_determinism(void) {
   int volatile_id;
   int type_tag_id;
   int int_ptr_id;
+  int const_ptr_id;
+  int volatile_ptr_id;
   int restrict_id;
   int decl_tag_id;
   int proto_id;
@@ -136,6 +138,10 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(type_tag_id > 0);
   int_ptr_id = btf__add_ptr(btf, int_id);
   REQUIRE(int_ptr_id > 0);
+  const_ptr_id = btf__add_const(btf, int_ptr_id);
+  REQUIRE(const_ptr_id > 0);
+  volatile_ptr_id = btf__add_volatile(btf, int_ptr_id);
+  REQUIRE(volatile_ptr_id > 0);
   restrict_id = btf__add_restrict(btf, int_ptr_id);
   REQUIRE(restrict_id > 0);
   decl_tag_id = btf__add_decl_tag(btf, "declared", int_id, -1);
@@ -154,7 +160,7 @@ static int test_emitter_output_and_determinism(void) {
   fwd_union_id = btf__add_fwd(btf, "future_union", BTF_FWD_UNION);
   REQUIRE(fwd_union_id > 0);
 
-  root_id = btf__add_struct(btf, "root", 24);
+  root_id = btf__add_struct(btf, "root", 128);
   REQUIRE(root_id > 0);
   REQUIRE(btf__add_field(btf, "leaf", leaf_id, 0, 0) == 0);
   REQUIRE(btf__add_field(btf, "payload", union_id, 32, 0) == 0);
@@ -174,9 +180,11 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(btf__add_field(btf, "extended", long_double_id, 528, 0) == 0);
   REQUIRE(btf__add_field(btf, "signed_wide", signed_enum64_id, 656, 0) == 0);
   REQUIRE(btf__add_field(btf, "anonymous_color", anon_enum_id, 720, 0) == 0);
-  REQUIRE(btf__add_field(btf, "restricted", restrict_id, 752, 0) == 0);
-  REQUIRE(btf__add_field(btf, "declared", decl_tag_id, 816, 0) == 0);
-  REQUIRE(btf__add_field(btf, "future", fwd_union_id, 848, 0) == 0);
+  REQUIRE(btf__add_field(btf, "constant_ptr", const_ptr_id, 752, 0) == 0);
+  REQUIRE(btf__add_field(btf, "volatile_ptr", volatile_ptr_id, 816, 0) == 0);
+  REQUIRE(btf__add_field(btf, "restricted", restrict_id, 880, 0) == 0);
+  REQUIRE(btf__add_field(btf, "declared", decl_tag_id, 944, 0) == 0);
+  REQUIRE(btf__add_field(btf, "future", fwd_union_id, 976, 0) == 0);
 
   REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
   REQUIRE(mch_type_set_add(&required, (size_t)root_id));
@@ -211,7 +219,9 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(strstr(first, "int anonymous_color;") != NULL);
   REQUIRE(strstr(first, "const int constant;") != NULL);
   REQUIRE(strstr(first, "volatile int changing;") != NULL);
-  REQUIRE(strstr(first, "restrict int *restricted;") != NULL);
+  REQUIRE(strstr(first, "int * const constant_ptr;") != NULL);
+  REQUIRE(strstr(first, "int * volatile volatile_ptr;") != NULL);
+  REQUIRE(strstr(first, "int * restrict restricted;") != NULL);
   REQUIRE(strstr(first, "int declared;") != NULL);
   REQUIRE(strstr(first, "typedef int callback_t(void);") != NULL);
   REQUIRE(strstr(first, "typedef int void_param_t(void);") != NULL);

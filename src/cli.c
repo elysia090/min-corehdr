@@ -37,6 +37,19 @@ static int set_btf_path(struct mch_cli_options *opts, const char *path, struct m
   return 0;
 }
 
+static int set_output_path(struct mch_cli_options *opts, const char *path, struct mch_error *err) {
+  if (opts->output_path != NULL) {
+    mch_error_set(err, "duplicate --output option");
+    return -1;
+  }
+  if (path[0] == '\0') {
+    mch_error_set(err, "empty --output FILE");
+    return -1;
+  }
+  opts->output_path = path;
+  return 0;
+}
+
 void mch_cli_options_init(struct mch_cli_options *opts) { memset(opts, 0, sizeof(*opts)); }
 
 void mch_cli_options_destroy(struct mch_cli_options *opts) {
@@ -103,11 +116,15 @@ int mch_cli_parse(int argc, char **argv, struct mch_cli_options *opts, struct mc
       continue;
     }
     if (strncmp(arg, "--output=", 9) == 0) {
-      opts->output_path = arg + 9;
+      if (set_output_path(opts, arg + 9, err) != 0) {
+        return -1;
+      }
       continue;
     }
     if (strcmp(arg, "--output") == 0) {
-      if (require_value(&i, argc, argv, "--output", &opts->output_path, err) != 0) {
+      const char *path = NULL;
+      if (require_value(&i, argc, argv, "--output", &path, err) != 0 ||
+          set_output_path(opts, path, err) != 0) {
         return -1;
       }
       continue;
@@ -135,14 +152,20 @@ int mch_cli_parse(int argc, char **argv, struct mch_cli_options *opts, struct mc
           opts->quiet = true;
           opts->verbose = 0;
           break;
-        case 'o':
+        case 'o': {
+          const char *path = NULL;
           if (arg[j + 1] != '\0') {
-            opts->output_path = &arg[j + 1];
-          } else if (require_value(&i, argc, argv, "-o", &opts->output_path, err) != 0) {
+            path = &arg[j + 1];
+            if (set_output_path(opts, path, err) != 0) {
+              return -1;
+            }
+          } else if (require_value(&i, argc, argv, "-o", &path, err) != 0 ||
+                     set_output_path(opts, path, err) != 0) {
             return -1;
           }
           j = strlen(arg) - 1;
           break;
+        }
         default:
           mch_error_set(err, "unknown option -%c", arg[j]);
           return -1;
