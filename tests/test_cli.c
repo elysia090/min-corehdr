@@ -128,6 +128,16 @@ int main(void) {
   }
 
   {
+    char *argv[] = {"min-corehdr", "--btf", "same.btf", "-o", "same.btf", "foo.bpf.o"};
+    REQUIRE(parse_fails(6, argv, "output path must not match --btf input") == 0);
+  }
+
+  {
+    char *argv[] = {"min-corehdr", "--btf", "base.btf", "-o", "foo.bpf.o", "foo.bpf.o"};
+    REQUIRE(parse_fails(6, argv, "output path must not match OBJECT input") == 0);
+  }
+
+  {
     char *argv[] = {"min-corehdr",    "--quiet", "--verbose",
                     "--btf=base.btf", "--",      "-strange.bpf.o"};
     struct mch_cli_options opts;
@@ -150,9 +160,11 @@ int main(void) {
   }
 
   {
-    char *argv[] = {"min-corehdr", "--output=out.h", "--btf", "base.btf", "foo.bpf.o"};
+    char *argv[] = {"min-corehdr", "--expand-pointers", "--output=out.h",
+                    "--btf",       "base.btf",          "foo.bpf.o"};
     struct mch_cli_options opts;
-    REQUIRE(parse_ok(5, argv, &opts) == 0);
+    REQUIRE(parse_ok(6, argv, &opts) == 0);
+    REQUIRE(opts.expand_pointers);
     REQUIRE(strcmp(opts.output_path, "out.h") == 0);
     mch_cli_options_destroy(&opts);
   }

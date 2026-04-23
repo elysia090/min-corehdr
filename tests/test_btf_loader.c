@@ -43,6 +43,7 @@ static int test_kind_names(void) {
 
 static int test_type_names(void) {
   struct btf *btf;
+  struct btf_type fake_type = {0};
   const struct btf_type *type;
   int int_id;
   int anon_id;
@@ -62,6 +63,9 @@ static int test_type_names(void) {
   type = btf__type_by_id(btf, anon_id);
   REQUIRE(strcmp(mch_btf_type_name(btf, type), "") == 0);
 
+  fake_type.name_off = 999999;
+  REQUIRE(strcmp(mch_btf_type_name(btf, &fake_type), "") == 0);
+
   btf__free(btf);
   return 0;
 }
@@ -72,6 +76,7 @@ static int test_load_errors(void) {
 
   mch_error_clear(&err);
   mch_btf_doc_init(&doc);
+  mch_btf_doc_destroy(NULL);
   REQUIRE(mch_load_base_btf("/nonexistent/min-corehdr/base.btf", &doc, &err) != 0);
   REQUIRE(err.message[0] != '\0');
   REQUIRE(err.file[0] != '\0');

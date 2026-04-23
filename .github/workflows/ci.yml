@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Build, test, and package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Build and test
+        run: |
+          nix --no-warn-dirty develop -c sh -lc '
+            cmake --preset dev
+            cmake --build --preset dev
+            ctest --preset dev --output-on-failure
+            cmake --build --preset dev --target check-format
+          '
+      - name: Coverage
+        run: nix --no-warn-dirty develop -c sh scripts/coverage.sh
+      - name: Package
+        run: |
+          nix --no-warn-dirty build
+          ./result/bin/min-corehdr --version
+      - name: Benchmark smoke
+        run: |
+          nix --no-warn-dirty develop -c sh -lc '
+            scripts/benchmark_cli.sh
+            rc=$?
+            [ "$rc" -eq 0 ] || [ "$rc" -eq 77 ]
+          '

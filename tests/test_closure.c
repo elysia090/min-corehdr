@@ -6,7 +6,10 @@
 #include <bpf/libbpf.h>
 #include <linux/btf.h>
 
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define REQUIRE(expr)                                                                              \
   do {                                                                                             \
@@ -15,6 +18,36 @@
       return 1;                                                                                    \
     }                                                                                              \
   } while (0)
+
+#if defined(__linux__)
+void *__real_malloc(size_t size);
+void *__real_realloc(void *ptr, size_t size);
+
+static long fail_malloc_after = -1;
+static long fail_realloc_after = -1;
+
+void *__wrap_malloc(size_t size) {
+  if (fail_malloc_after == 0) {
+    fail_malloc_after = -1;
+    return NULL;
+  }
+  if (fail_malloc_after > 0) {
+    fail_malloc_after--;
+  }
+  return __real_malloc(size);
+}
+
+void *__wrap_realloc(void *ptr, size_t size) {
+  if (fail_realloc_after == 0) {
+    fail_realloc_after = -1;
+    return NULL;
+  }
+  if (fail_realloc_after > 0) {
+    fail_realloc_after--;
+  }
+  return __real_realloc(ptr, size);
+}
+#endif
 
 static int test_dependency_closure(void) {
   struct mch_type_set required;
@@ -146,6 +179,118 @@ static int test_dependency_closure_grows_worklist(void) {
   return 0;
 }
 
+static int test_dependency_closure_can_expand_pointers(void) {
+  struct mch_type_set required;
+  struct mch_closure_stats stats;
+  struct mch_error err;
+  struct mch_closure_options options = {.expand_pointers = true};
+  struct btf *btf;
+  int int_id;
+  int leaf_id;
+  int leaf_ptr_id;
+  int root_id;
+
+  mch_error_clear(&err);
+  mch_closure_stats_init(&stats);
+
+  btf = btf__new_empty();
+  REQUIRE(libbpf_get_error(btf) == 0);
+
+  int_id = btf__add_int(btf, "int", 4, BTF_INT_SIGNED);
+  REQUIRE(int_id > 0);
+  leaf_id = btf__add_struct(btf, "leaf", 4);
+  REQUIRE(leaf_id > 0);
+  REQUIRE(btf__add_field(btf, "value", int_id, 0, 0) == 0);
+  leaf_ptr_id = btf__add_ptr(btf, leaf_id);
+  REQUIRE(leaf_ptr_id > 0);
+  root_id = btf__add_struct(btf, "pointer_root", 8);
+  REQUIRE(root_id > 0);
+  REQUIRE(btf__add_field(btf, "leaf", leaf_ptr_id, 0, 0) == 0);
+
+  REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
+  REQUIRE(mch_type_set_add(&required, (size_t)root_id));
+  REQUIRE(mch_compute_dependency_closure_with_options(btf, &required, &stats, &options, &err) == 0);
+
+  REQUIRE(mch_type_set_contains(&required, (size_t)leaf_ptr_id));
+  REQUIRE(mch_type_set_contains(&required, (size_t)leaf_id));
+  REQUIRE(mch_type_set_contains(&required, (size_t)int_id));
+
+  mch_type_set_destroy(&required);
+  btf__free(btf);
+  return 0;
+}
+
+#if defined(__linux__)
+static int test_dependency_closure_allocation_failures(void) {
+  struct mch_type_set required;
+  struct mch_type_set oversized = {.selected = SIZE_MAX};
+  struct mch_closure_stats stats;
+  struct mch_error err;
+  struct btf *btf;
+  int int_id;
+  int leaf_ids[24];
+  int root_id;
+  int rc;
+
+  btf = btf__new_empty();
+  REQUIRE(libbpf_get_error(btf) == 0);
+  int_id = btf__add_int(btf, "int", 4, BTF_INT_SIGNED);
+  REQUIRE(int_id > 0);
+
+  mch_error_clear(&err);
+  mch_closure_stats_init(&stats);
+  rc = mch_compute_dependency_closure(btf, &oversized, &stats, &err);
+  REQUIRE(rc != 0);
+  REQUIRE(strstr(err.message, "worklist is too large") != NULL);
+
+  REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
+  REQUIRE(mch_type_set_add(&required, (size_t)int_id));
+  mch_error_clear(&err);
+  mch_closure_stats_init(&stats);
+  fail_malloc_after = 0;
+  rc = mch_compute_dependency_closure(btf, &required, &stats, &err);
+  fail_malloc_after = -1;
+  REQUIRE(rc != 0);
+  REQUIRE(strstr(err.message, "out of memory while preparing dependency closure worklist") != NULL);
+  mch_type_set_destroy(&required);
+  btf__free(btf);
+
+  btf = btf__new_empty();
+  REQUIRE(libbpf_get_error(btf) == 0);
+  int_id = btf__add_int(btf, "int", 4, BTF_INT_SIGNED);
+  REQUIRE(int_id > 0);
+  for (size_t i = 0; i < sizeof(leaf_ids) / sizeof(leaf_ids[0]); i++) {
+    char name[32];
+
+    snprintf(name, sizeof(name), "alloc_leaf_%zu", i);
+    leaf_ids[i] = btf__add_struct(btf, name, 4);
+    REQUIRE(leaf_ids[i] > 0);
+    REQUIRE(btf__add_field(btf, "value", int_id, 0, 0) == 0);
+  }
+  root_id = btf__add_struct(btf, "alloc_root", 96);
+  REQUIRE(root_id > 0);
+  for (size_t i = 0; i < sizeof(leaf_ids) / sizeof(leaf_ids[0]); i++) {
+    char name[32];
+
+    snprintf(name, sizeof(name), "leaf_%zu", i);
+    REQUIRE(btf__add_field(btf, name, leaf_ids[i], (unsigned int)(i * 32), 0) == 0);
+  }
+  REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
+  REQUIRE(mch_type_set_add(&required, (size_t)root_id));
+  mch_error_clear(&err);
+  mch_closure_stats_init(&stats);
+  fail_realloc_after = 0;
+  rc = mch_compute_dependency_closure(btf, &required, &stats, &err);
+  fail_realloc_after = -1;
+  REQUIRE(rc != 0);
+  REQUIRE(strstr(err.message, "out of memory while growing dependency closure worklist") != NULL);
+
+  mch_type_set_destroy(&required);
+  btf__free(btf);
+  return 0;
+}
+#endif
+
 static int test_dependency_closure_special_roots(void) {
   struct mch_type_set required;
   struct mch_closure_stats stats;
@@ -156,6 +301,7 @@ static int test_dependency_closure_special_roots(void) {
   int leaf_ptr_id;
   int proto_id;
   int void_proto_id;
+  int func_id;
   int var_id;
   int datasec_id;
 
@@ -178,6 +324,8 @@ static int test_dependency_closure_special_roots(void) {
   void_proto_id = btf__add_func_proto(btf, 0);
   REQUIRE(void_proto_id > 0);
   REQUIRE(btf__add_func_param(btf, "unused", 0) == 0);
+  func_id = btf__add_func(btf, "handle_leaf", BTF_FUNC_GLOBAL, proto_id);
+  REQUIRE(func_id > 0);
   var_id = btf__add_var(btf, "global_leaf", BTF_VAR_GLOBAL_ALLOCATED, leaf_id);
   REQUIRE(var_id > 0);
   datasec_id = btf__add_datasec(btf, ".data", 4);
@@ -187,6 +335,7 @@ static int test_dependency_closure_special_roots(void) {
   REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
   REQUIRE(mch_type_set_add(&required, (size_t)proto_id));
   REQUIRE(mch_type_set_add(&required, (size_t)void_proto_id));
+  REQUIRE(mch_type_set_add(&required, (size_t)func_id));
   REQUIRE(mch_type_set_add(&required, (size_t)datasec_id));
   REQUIRE(mch_compute_dependency_closure(btf, &required, &stats, &err) == 0);
 
@@ -204,5 +353,9 @@ int main(void) {
   REQUIRE(test_dependency_closure() == 0);
   REQUIRE(test_dependency_closure_special_roots() == 0);
   REQUIRE(test_dependency_closure_grows_worklist() == 0);
+  REQUIRE(test_dependency_closure_can_expand_pointers() == 0);
+#if defined(__linux__)
+  REQUIRE(test_dependency_closure_allocation_failures() == 0);
+#endif
   return 0;
 }

@@ -15,6 +15,7 @@ struct mch_cli_options {
   int verbose;
   bool quiet;
   bool stats;
+  bool expand_pointers;
   bool help;
   bool version;
 };

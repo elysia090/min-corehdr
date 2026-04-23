@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MIT -->
+
 # min-corehdr
 
 `min-corehdr` is an object-driven build-time utility for generating a reduced local CO-RE C header from one or more `.bpf.o` files and an explicit base BTF file.
@@ -45,6 +47,9 @@ Format sources when needed:
 cmake --build --preset dev --target format
 ```
 
+CI runs the same Nix-backed build, unit/integration test, check-format, coverage, and package
+smoke gates on GitHub Actions.
+
 ## Try the Minimal Example
 
 For a first end-to-end run, use `examples/minimal`. It contains a small hand-written CO-RE
@@ -68,6 +73,10 @@ min-corehdr --btf /sys/kernel/btf/vmlinux -o vmlinux.h foo.bpf.o
 
 Without `-o`, the generated header is written to stdout and diagnostics stay on stderr.
 
+Use `--expand-pointers` when you prefer conservative compile-time coverage over the smallest
+possible header. The default keeps pointer targets as forward declarations unless they are reached
+by fields, arrays, function prototypes, variables, datasecs, or CO-RE relocation roots.
+
 ## Current Slice
 
 Implemented now:
@@ -77,12 +86,20 @@ Implemented now:
 - O(1)-average base BTF exact name/kind lookup through a compact index
 - object-local BTF seed extraction with v0.1 exact name/kind resolution and local typedef-chain unwrapping
 - CO-RE relocation root extraction from `.BTF.ext`
+- source-aware failure diagnostics from `.BTF.ext` function and line metadata when available
 - worklist-based conservative dependency closure over base BTF
-- initial C header emission with include guard, forward declarations, record definitions, enums, typedefs, and `preserve_access_index`
+- C header emission with include guard, forward declarations, record definitions, enums, member-position typedef names, and `preserve_access_index`
 - unit tests for CLI parsing, type sets, base BTF indexing, seed extraction, and dependency closure
 - checked-in practical BPF example plus fixture-based integration tests for the SPEC compile-completeness matrix, multi-object union, deterministic output, generated-header recompilation, and unresolved CO-RE failure paths
 - LLVM coverage and `hyperfine` benchmark scripts for standard measurement
 
-Next high-value work:
+## Implementation Notes
 
-- improve source-location diagnostics from `.BTF.ext` line info
+`min-corehdr` uses libbpf for BTF loading and parses the libbpf-provided raw `.BTF.ext` UAPI
+records to derive CO-RE relocation roots and source-aware diagnostics. This is intentionally kept
+small and covered by malformed-record tests because libbpf does not expose a public CO-RE relocation
+iterator API.
+
+## License
+
+MIT. See `LICENSE`.

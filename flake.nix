@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 {
   description = "Object-driven minimal local CO-RE header generator";
 
@@ -12,6 +13,10 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
+          gitRevision =
+            if self ? shortRev then self.shortRev
+            else if self ? dirtyShortRev then self.dirtyShortRev
+            else "unknown";
         in
         {
           default = pkgs.stdenv.mkDerivation {
@@ -31,6 +36,17 @@
               pkgs.zlib
               pkgs.zstd
             ];
+
+            cmakeFlags = [
+              "-DMIN_COREHDR_GIT_REVISION=${gitRevision}"
+            ];
+
+            meta = {
+              description = "Object-driven minimal local CO-RE header generator";
+              license = pkgs.lib.licenses.mit;
+              mainProgram = "min-corehdr";
+              platforms = pkgs.lib.platforms.linux;
+            };
           };
         });
 

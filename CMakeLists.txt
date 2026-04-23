@@ -4,7 +4,31 @@ project(min_corehdr VERSION 0.1.0 LANGUAGES C)
 
 include(CTest)
 find_package(PkgConfig REQUIRED)
+find_package(Git QUIET)
 pkg_check_modules(LIBBPF REQUIRED IMPORTED_TARGET libbpf>=1.5)
+
+if(NOT DEFINED MIN_COREHDR_GIT_REVISION)
+  set(MIN_COREHDR_GIT_REVISION "unknown")
+endif()
+if(MIN_COREHDR_GIT_REVISION STREQUAL "unknown" AND GIT_FOUND)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} rev-parse --short=12 HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE MIN_COREHDR_GIT_REVISION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    RESULT_VARIABLE MIN_COREHDR_GIT_RESULT
+  )
+  if(NOT MIN_COREHDR_GIT_RESULT EQUAL 0 OR MIN_COREHDR_GIT_REVISION STREQUAL "")
+    set(MIN_COREHDR_GIT_REVISION "unknown")
+  endif()
+endif()
+
+configure_file(
+  include/min_corehdr/version.h.in
+  ${CMAKE_CURRENT_BINARY_DIR}/generated/min_corehdr/version.h
+  @ONLY
+)
 
 set(MIN_COREHDR_HEADERS
   include/min_corehdr/btf_index.h
@@ -36,11 +60,15 @@ set(MIN_COREHDR_FORMAT_FILES
   ${MIN_COREHDR_HEADERS}
   tests/test_cli.c
   tests/test_closure.c
+  tests/test_closure_private.c
   tests/test_emitter.c
+  tests/test_emitter_private.c
   tests/test_error.c
+  tests/test_main.c
   tests/test_btf_index.c
   tests/test_btf_loader.c
   tests/test_seeds.c
+  tests/test_seeds_private.c
   tests/test_type_set.c
 )
 
@@ -55,7 +83,11 @@ if(MIN_COREHDR_ENABLE_COVERAGE)
 endif()
 
 add_library(min-corehdr-core STATIC ${MIN_COREHDR_LIB_SOURCES} ${MIN_COREHDR_HEADERS})
-target_include_directories(min-corehdr-core PUBLIC include)
+target_include_directories(min-corehdr-core
+  PUBLIC
+    include
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+)
 target_link_libraries(min-corehdr-core PUBLIC PkgConfig::LIBBPF)
 target_compile_features(min-corehdr-core PUBLIC c_std_17)
 
@@ -109,14 +141,74 @@ if(BUILD_TESTING)
   add_executable(test-seeds tests/test_seeds.c)
   target_link_libraries(test-seeds PRIVATE min-corehdr-core)
 
+  add_library(test-seeds-private-seeds OBJECT src/seeds.c)
+  target_compile_definitions(test-seeds-private-seeds PRIVATE static=)
+  target_include_directories(test-seeds-private-seeds PRIVATE include)
+
+  add_executable(test-seeds-private
+    tests/test_seeds_private.c
+    $<TARGET_OBJECTS:test-seeds-private-seeds>
+    src/btf_index.c
+    src/btf_loader.c
+    src/error.c
+    src/type_set.c
+  )
+  target_include_directories(test-seeds-private PRIVATE include)
+  target_link_libraries(test-seeds-private PRIVATE PkgConfig::LIBBPF)
+
   add_executable(test-closure tests/test_closure.c)
   target_link_libraries(test-closure PRIVATE min-corehdr-core)
+
+  add_library(test-closure-private-closure OBJECT src/closure.c)
+  target_compile_definitions(test-closure-private-closure PRIVATE static=)
+  target_include_directories(test-closure-private-closure PRIVATE include)
+
+  add_executable(test-closure-private
+    tests/test_closure_private.c
+    $<TARGET_OBJECTS:test-closure-private-closure>
+    src/error.c
+    src/type_set.c
+  )
+  target_include_directories(test-closure-private PRIVATE include)
+  target_link_libraries(test-closure-private PRIVATE PkgConfig::LIBBPF)
 
   add_executable(test-emitter tests/test_emitter.c)
   target_link_libraries(test-emitter PRIVATE min-corehdr-core)
 
+  add_library(test-emitter-private-emitter OBJECT src/emitter.c)
+  target_compile_definitions(test-emitter-private-emitter PRIVATE static=)
+  target_include_directories(test-emitter-private-emitter PRIVATE include)
+
+  add_executable(test-emitter-private
+    tests/test_emitter_private.c
+    $<TARGET_OBJECTS:test-emitter-private-emitter>
+    src/btf_loader.c
+    src/error.c
+    src/type_set.c
+  )
+  target_include_directories(test-emitter-private PRIVATE include)
+  target_link_libraries(test-emitter-private PRIVATE PkgConfig::LIBBPF)
+
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(test-closure PRIVATE
+      -Wl,--wrap=malloc
+      -Wl,--wrap=realloc
+    )
+    target_link_options(test-btf-index PRIVATE
+      -Wl,--wrap=calloc
+      -Wl,--wrap=malloc
+    )
+    target_link_options(test-emitter PRIVATE
+      -Wl,--wrap=calloc
+      -Wl,--wrap=malloc
+    )
+  endif()
+
   add_executable(test-error tests/test_error.c)
   target_link_libraries(test-error PRIVATE min-corehdr-core)
+
+  add_executable(test-main tests/test_main.c)
+  target_link_libraries(test-main PRIVATE min-corehdr-core)
 
   add_test(NAME min-corehdr-help COMMAND min-corehdr --help)
   add_test(NAME min-corehdr-version COMMAND min-corehdr --version)
@@ -125,9 +217,13 @@ if(BUILD_TESTING)
   add_test(NAME btf-index COMMAND test-btf-index)
   add_test(NAME btf-loader COMMAND test-btf-loader)
   add_test(NAME seeds COMMAND test-seeds)
+  add_test(NAME seeds-private COMMAND test-seeds-private)
   add_test(NAME closure COMMAND test-closure)
+  add_test(NAME closure-private COMMAND test-closure-private)
   add_test(NAME emitter COMMAND test-emitter)
+  add_test(NAME emitter-private COMMAND test-emitter-private)
   add_test(NAME error COMMAND test-error)
+  add_test(NAME main-orchestration COMMAND test-main)
   add_test(NAME cli-smoke
     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_smoke.sh $<TARGET_FILE:min-corehdr>)
   add_test(NAME example-smoke

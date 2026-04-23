@@ -81,11 +81,15 @@ static int add_dep(const struct btf *btf, struct mch_type_set *required, __u32 i
 
 static int add_type_deps(const struct btf *btf, const struct btf_type *type,
                          struct mch_type_set *required, struct mch_closure_stats *stats,
-                         struct closure_worklist *worklist, struct mch_error *err) {
+                         struct closure_worklist *worklist,
+                         const struct mch_closure_options *options, struct mch_error *err) {
   unsigned int kind = btf_kind(type);
 
   switch (kind) {
   case BTF_KIND_PTR:
+    if (options != NULL && options->expand_pointers) {
+      return add_dep(btf, required, type->type, worklist, stats, err);
+    }
     return 0;
   case BTF_KIND_TYPEDEF:
   case BTF_KIND_VOLATILE:
@@ -157,6 +161,14 @@ void mch_closure_stats_init(struct mch_closure_stats *stats) { stats->added_type
 
 int mch_compute_dependency_closure(const struct btf *btf, struct mch_type_set *required,
                                    struct mch_closure_stats *stats, struct mch_error *err) {
+  return mch_compute_dependency_closure_with_options(btf, required, stats, NULL, err);
+}
+
+int mch_compute_dependency_closure_with_options(const struct btf *btf,
+                                                struct mch_type_set *required,
+                                                struct mch_closure_stats *stats,
+                                                const struct mch_closure_options *options,
+                                                struct mch_error *err) {
   struct closure_worklist worklist;
   size_t cursor = 1;
   size_t id = 0;
@@ -183,7 +195,7 @@ int mch_compute_dependency_closure(const struct btf *btf, struct mch_type_set *r
       worklist_destroy(&worklist);
       return -1;
     }
-    if (add_type_deps(btf, type, required, stats, &worklist, err) != 0) {
+    if (add_type_deps(btf, type, required, stats, &worklist, options, err) != 0) {
       worklist_destroy(&worklist);
       return -1;
     }
