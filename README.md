@@ -86,7 +86,8 @@ Implemented now:
 - O(1)-average base BTF exact name/kind lookup through a compact index
 - object-local BTF seed extraction with v0.1 exact name/kind resolution and local typedef-chain unwrapping
 - CO-RE relocation root extraction from `.BTF.ext`
-- source-aware failure diagnostics from `.BTF.ext` function and line metadata when available
+- source-aware failure diagnostics from `.BTF.ext` function and line metadata, including the
+  object-BTF type, base-BTF lookup, and CO-RE relocation ordinal when available
 - worklist-based conservative dependency closure over base BTF
 - C header emission with include guard, forward declarations, record definitions, enums, member-position typedef names, and `preserve_access_index`
 - unit tests for CLI parsing, type sets, base BTF indexing, seed extraction, and dependency closure

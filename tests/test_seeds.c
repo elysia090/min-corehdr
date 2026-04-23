@@ -240,6 +240,9 @@ static int test_ambiguous_kernel_match_fails(void) {
   REQUIRE(rc != 0);
   REQUIRE(err.message[0] != '\0');
   REQUIRE(err.file[0] != '\0');
+  REQUIRE(strstr(err.detail, "object BTF seed object type:") != NULL);
+  REQUIRE(strstr(err.detail, "base BTF query: id ") != NULL);
+  REQUIRE(strstr(err.detail, "STRUCT 'dup_type' -> ambiguous base matches") != NULL);
 
   mch_type_set_destroy(&seeds);
   mch_btf_index_destroy(&index);
@@ -384,7 +387,15 @@ static int test_core_relo_source_diagnostics(void) {
   REQUIRE(strstr(err.context, "FIELD_BYTE_OFFSET") != NULL);
   REQUIRE(strstr(err.context, "access: 0:1") != NULL);
   REQUIRE(strstr(err.context, "type_id:") != NULL);
+  REQUIRE(strstr(err.context, "relo: #1") != NULL);
+  REQUIRE(strstr(err.context, "section relo: #1") != NULL);
   REQUIRE(strcmp(err.file, "source-diag.bpf.o") == 0);
+  REQUIRE(strstr(err.detail, "CO-RE relocation object type:") != NULL);
+  REQUIRE(strstr(err.detail, "id ") != NULL);
+  REQUIRE(strstr(err.detail, "STRUCT 'missing_kernel_type'") != NULL);
+  REQUIRE(strstr(err.detail, "base BTF query: id ") != NULL);
+  REQUIRE(strstr(err.detail, "STRUCT 'missing_kernel_type' -> no same-name, same-kind match") !=
+          NULL);
 
   btf_ext__free(ext);
   mch_type_set_destroy(&seeds);
