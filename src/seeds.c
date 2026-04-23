@@ -66,6 +66,32 @@ static __u32 read_u32(const void *ptr) {
 
 static const char *core_relo_kind_name(enum bpf_core_relo_kind kind);
 
+static void set_resolution_detail(const struct btf *object_btf, __u32 root_type_id,
+                                  __u32 query_type_id, const char *query_name,
+                                  unsigned int query_kind, const char *reference,
+                                  const char *base_result, struct mch_error *err) {
+  const struct btf_type *root_type = NULL;
+  const char *root_name = "<invalid>";
+  const char *query_kind_name;
+  const char *query_label =
+      query_name != NULL && query_name[0] != '\0' ? query_name : "<anonymous>";
+
+  if (root_type_id < btf__type_cnt(object_btf)) {
+    root_type = btf__type_by_id(object_btf, root_type_id);
+  }
+  if (root_type != NULL) {
+    const char *name = mch_btf_type_name(object_btf, root_type);
+
+    root_name = name[0] != '\0' ? name : "<anonymous>";
+  }
+
+  query_kind_name = mch_btf_kind_name(query_kind);
+  mch_error_set_detail(err, "%s object type: id %u %s '%s'; base BTF query: id %u %s '%s' -> %s",
+                       reference, root_type_id,
+                       root_type == NULL ? "<invalid>" : mch_btf_kind_name(btf_kind(root_type)),
+                       root_name, query_type_id, query_kind_name, query_label, base_result);
+}
+
 static int init_ext_info(struct mch_ext_info *info, const uint8_t *raw, __u32 raw_size,
                          __u32 hdr_len, __u32 off, __u32 len, size_t min_rec_size,
                          const char *label, const char *object_path, bool required,
@@ -223,7 +249,8 @@ static const char *find_function_name(const struct btf *object_btf,
 static void set_core_relo_context(const struct btf *object_btf,
                                   const struct mch_ext_info *func_info,
                                   const struct mch_ext_info *line_info, __u32 sec_name_off,
-                                  const struct bpf_core_relo *relo, struct mch_error *err) {
+                                  const struct bpf_core_relo *relo, size_t relo_index,
+                                  __u32 section_relo_index, struct mch_error *err) {
   const char *section = btf__str_by_offset(object_btf, sec_name_off);
   const char *access = btf__str_by_offset(object_btf, relo->access_str_off);
   const char *function;
@@ -256,13 +283,16 @@ static void set_core_relo_context(const struct btf *object_btf,
   if (function != NULL && file_name != NULL) {
     mch_error_set_context(err,
                           "%s (function: %s, section: %s, insn: %u, CO-RE %s, access: %s, "
-                          "type_id: %u)",
+                          "type_id: %u, relo: #%zu, section relo: #%u)",
                           location, function, section, relo->insn_off,
-                          core_relo_kind_name(relo->kind), access, relo->type_id);
+                          core_relo_kind_name(relo->kind), access, relo->type_id, relo_index,
+                          section_relo_index + 1);
   } else {
-    mch_error_set_context(err, "%s (section: %s, insn: %u, CO-RE %s, access: %s, type_id: %u)",
+    mch_error_set_context(err,
+                          "%s (section: %s, insn: %u, CO-RE %s, access: %s, type_id: %u, "
+                          "relo: #%zu, section relo: #%u)",
                           location, section, relo->insn_off, core_relo_kind_name(relo->kind),
-                          access, relo->type_id);
+                          access, relo->type_id, relo_index, section_relo_index + 1);
   }
   if (err->hint[0] == '\0') {
     mch_error_set_hint(err, "check the CO-RE relocation type id against the object BTF");
@@ -308,6 +338,9 @@ static int resolve_object_type_to_base(const struct mch_btf_index *base_index,
                                        bool allow_program_local, unsigned int *base_id,
                                        struct mch_error *err) {
   const char *root_name = NULL;
+  const char *query_name = NULL;
+  unsigned int query_kind = BTF_KIND_UNKN;
+  __u32 query_id = object_type_id;
   __u32 id = object_type_id;
 
   for (unsigned int depth = 0; depth < 32; depth++) {
@@ -336,10 +369,15 @@ static int resolve_object_type_to_base(const struct mch_btf_index *base_index,
     }
 
     if (is_seedable_kind(kind) && name[0] != '\0') {
+      query_id = id;
+      query_name = name;
+      query_kind = kind;
       match = mch_btf_index_lookup(base_index, name, kind, base_id);
       if (match < 0) {
         mch_error_set(err, "ambiguous kernel type '%s' (%s)", name, mch_btf_kind_name(kind));
         mch_error_set_file(err, object_path);
+        set_resolution_detail(object_btf, object_type_id, query_id, query_name, query_kind,
+                              reference, "ambiguous base matches", err);
         mch_error_set_hint(err, "v0.1 requires exactly one same-name, same-kind base BTF match");
         return -1;
       }
@@ -360,12 +398,21 @@ static int resolve_object_type_to_base(const struct mch_btf_index *base_index,
     mch_error_set(err, "failed to resolve kernel type '%s'",
                   root_name != NULL ? root_name : "<anonymous>");
     mch_error_set_file(err, object_path);
+    if (query_name == NULL) {
+      query_id = id;
+      query_name = mch_btf_type_name(object_btf, type);
+      query_kind = kind;
+    }
+    set_resolution_detail(object_btf, object_type_id, query_id, query_name, query_kind, reference,
+                          "no same-name, same-kind match", err);
     mch_error_set_hint(err, "verify that --btf points to the intended target kernel BTF");
     return -1;
   }
 
   mch_error_set(err, "object BTF type chain is too deep at type id %u", object_type_id);
   mch_error_set_file(err, object_path);
+  set_resolution_detail(object_btf, object_type_id, query_id, query_name, query_kind, reference,
+                        "type chain too deep before base lookup", err);
   mch_error_set_hint(err, "check for an unexpected typedef or modifier cycle");
   return -1;
 }
@@ -509,6 +556,7 @@ int mch_extract_core_relo_seeds(const struct mch_btf_index *base_index,
     for (__u32 i = 0; i < sec.num_info; i++) {
       struct bpf_core_relo relo;
       unsigned int base_id = 0;
+      size_t relo_index = stats->core_relocations + 1;
       int match;
 
       if ((size_t)(end - pos) < core_info.rec_size) {
@@ -524,7 +572,8 @@ int mch_extract_core_relo_seeds(const struct mch_btf_index *base_index,
       match = resolve_object_type_to_base(base_index, object_btf, relo.type_id, object_path,
                                           "CO-RE relocation", false, &base_id, err);
       if (match < 0) {
-        set_core_relo_context(object_btf, &func_info, &line_info, sec.sec_name_off, &relo, err);
+        set_core_relo_context(object_btf, &func_info, &line_info, sec.sec_name_off, &relo,
+                              relo_index, i, err);
         return -1;
       }
       if (mch_type_set_add(seeds, base_id)) {

@@ -133,6 +133,8 @@ static int test_resolve_chain_depth_limit(void) {
                                    false, &base_id, &err);
   REQUIRE(rc != 0);
   REQUIRE(strstr(err.message, "type chain is too deep") != NULL);
+  REQUIRE(strstr(err.detail, "CO-RE relocation object type:") != NULL);
+  REQUIRE(strstr(err.detail, "type chain too deep") != NULL);
   REQUIRE(err.hint[0] != '\0');
 
   mch_btf_index_destroy(&index);

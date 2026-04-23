@@ -312,13 +312,18 @@ Errors must be short, direct, and actionable.
 Format:
 
 error: failed to resolve kernel type 'task_struct'
+in:    source.bpf.c:42:7 (function: handle_exec, section: xdp, insn: 16, CO-RE FIELD_BYTE_OFFSET, access: 0:1, type_id: 12, relo: #1, section relo: #1)
 file: foo.bpf.o
+detail: CO-RE relocation object type: id 12 STRUCT 'task_struct'; base BTF query: id 12 STRUCT 'task_struct' -> no same-name, same-kind match
 hint: verify that --btf points to the intended target kernel BTF
 
 Rules:
 
 * first line states the failure
-* second line identifies the relevant file when possible
+* `in:` identifies the source location, function, section, CO-RE relocation kind, access string,
+  object type id, and relocation ordinal when `.BTF.ext` metadata is available
+* `file:` identifies the object file when possible
+* `detail:` describes the object-BTF type and base-BTF lookup that failed
 * optional hint gives one next action
 * no stack traces by default
 * no internal jargon unless unavoidable

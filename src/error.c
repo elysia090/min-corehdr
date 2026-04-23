@@ -11,6 +11,7 @@ void mch_error_clear(struct mch_error *err) {
   err->message[0] = '\0';
   err->context[0] = '\0';
   err->file[0] = '\0';
+  err->detail[0] = '\0';
   err->hint[0] = '\0';
 }
 
@@ -45,6 +46,18 @@ void mch_error_set_file(struct mch_error *err, const char *file) {
   snprintf(err->file, sizeof(err->file), "%s", file);
 }
 
+void mch_error_set_detail(struct mch_error *err, const char *fmt, ...) {
+  va_list ap;
+
+  if (err == NULL) {
+    return;
+  }
+
+  va_start(ap, fmt);
+  vsnprintf(err->detail, sizeof(err->detail), fmt, ap);
+  va_end(ap);
+}
+
 void mch_error_set_hint(struct mch_error *err, const char *hint) {
   if (err == NULL || hint == NULL) {
     return;
@@ -63,6 +76,9 @@ void mch_error_print(FILE *out, const struct mch_error *err) {
   }
   if (err->file[0] != '\0') {
     fprintf(out, "file:  %s\n", err->file);
+  }
+  if (err->detail[0] != '\0') {
+    fprintf(out, "detail: %s\n", err->detail);
   }
   if (err->hint[0] != '\0') {
     fprintf(out, "hint:  %s\n", err->hint);
