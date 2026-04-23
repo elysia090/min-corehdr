@@ -20,11 +20,15 @@ llvm-cov report "$build/min-corehdr" \
   -object "$build/test-btf-index" \
   -object "$build/test-btf-loader" \
   -object "$build/test-seeds" \
+  -object "$build/test-seeds-private" \
   -object "$build/test-closure" \
+  -object "$build/test-closure-private" \
   -object "$build/test-emitter" \
+  -object "$build/test-emitter-private" \
   -object "$build/test-error" \
+  -object "$build/test-main" \
   -instr-profile "$profdata" \
-  -ignore-filename-regex='(^|/)(tests|build)/|/nix/store/'
+  -ignore-filename-regex='(^|/)tests/[^.][^/]*\.(c|h)$|(^|/)build/|/nix/store/'
 
 llvm-cov export "$build/min-corehdr" \
   -object "$build/test-cli" \
@@ -32,7 +36,11 @@ llvm-cov export "$build/min-corehdr" \
   -object "$build/test-btf-index" \
   -object "$build/test-btf-loader" \
   -object "$build/test-seeds" \
+  -object "$build/test-seeds-private" \
   -object "$build/test-closure" \
+  -object "$build/test-closure-private" \
   -object "$build/test-emitter" \
+  -object "$build/test-emitter-private" \
   -object "$build/test-error" \
+  -object "$build/test-main" \
   -instr-profile "$profdata" > "$build/coverage.json"

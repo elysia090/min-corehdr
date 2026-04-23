@@ -16,6 +16,7 @@ int main(void) {
 
   mch_error_clear(NULL);
   mch_error_set(NULL, "ignored");
+  mch_error_set_context(NULL, "ignored");
   mch_error_set_file(NULL, "ignored");
   mch_error_set_file(&err, NULL);
   mch_error_set_hint(NULL, "ignored");
@@ -26,11 +27,13 @@ int main(void) {
   mch_error_clear(&err);
   mch_error_print(stderr, &err);
   mch_error_set(&err, "hello %s", "world");
+  mch_error_set_context(&err, "%s:%d", "source.bpf.c", 42);
   mch_error_print(stderr, &err);
   mch_error_set_file(&err, "file.o");
   mch_error_set_hint(&err, "try again");
   mch_error_print(stderr, &err);
   REQUIRE(strstr(err.message, "hello world") != NULL);
+  REQUIRE(strcmp(err.context, "source.bpf.c:42") == 0);
   REQUIRE(strcmp(err.file, "file.o") == 0);
   REQUIRE(strcmp(err.hint, "try again") == 0);
   return 0;

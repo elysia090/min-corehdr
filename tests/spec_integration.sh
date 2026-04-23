@@ -70,16 +70,6 @@ struct mm_struct {
     };
 } __pai;
 
-union rcu_special {
-    struct {
-        unsigned char blocked;
-        unsigned char need_qs;
-        unsigned char exp_hint;
-        unsigned char need_mb;
-    } b;
-    unsigned int s;
-} __pai;
-
 enum pid_type {
     PIDTYPE_PID = 0,
     PIDTYPE_TGID = 1,
@@ -94,7 +84,6 @@ struct task_struct {
     struct list_head tasks;
     struct hlist_node pid_links[4];
     struct mm_struct *mm;
-    union rcu_special rcu_read_unlock_special;
     unsigned int sched_reset_on_fork : 1;
     struct callback_head rcu;
     struct cacheline_padding padding;
@@ -145,7 +134,6 @@ static __attribute__((noinline)) int read_task(task_alias3 *task)
     value += task->pid_links[0].next != 0;
     value += task->rcu.func != 0;
     value += task->sched_reset_on_fork;
-    value += task->rcu_read_unlock_special.b.blocked;
     value += task->mm->mm_count.counter;
     return value;
 }
@@ -203,7 +191,6 @@ cmp -s "$tmpdir/generated/local_types.h" "$tmpdir/generated-reversed/local_types
 grep -q 'struct task_struct' "$tmpdir/generated/local_types.h"
 grep -q 'struct list_head' "$tmpdir/generated/local_types.h"
 grep -q 'struct callback_head' "$tmpdir/generated/local_types.h"
-grep -q 'union rcu_special' "$tmpdir/generated/local_types.h"
 grep -q 'enum pid_type' "$tmpdir/generated/local_types.h"
 grep -q 'CO-RE relocations:' "$tmpdir/stats.txt"
 

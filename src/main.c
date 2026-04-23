@@ -95,6 +95,7 @@ int main(int argc, char **argv) {
   struct mch_type_set required;
   struct mch_seed_stats seed_total;
   struct mch_closure_stats closure_stats;
+  struct mch_closure_options closure_options;
   int rc = 1;
 
   mch_error_clear(&err);
@@ -104,12 +105,14 @@ int main(int argc, char **argv) {
   memset(&required, 0, sizeof(required));
   mch_seed_stats_init(&seed_total);
   mch_closure_stats_init(&closure_stats);
+  closure_options = (struct mch_closure_options){0};
 
   if (mch_cli_parse(argc, argv, &opts, &err) != 0) {
     mch_error_print(stderr, &err);
     mch_cli_options_destroy(&opts);
     return 2;
   }
+  closure_options.expand_pointers = opts.expand_pointers;
 
   if (opts.help) {
     mch_cli_print_help(stdout, argv[0]);
@@ -181,7 +184,8 @@ int main(int argc, char **argv) {
   if (!opts.quiet && opts.verbose > 0) {
     fprintf(stderr, "computing dependency closure\n");
   }
-  if (mch_compute_dependency_closure(base.btf, &required, &closure_stats, &err) != 0) {
+  if (mch_compute_dependency_closure_with_options(base.btf, &required, &closure_stats,
+                                                  &closure_options, &err) != 0) {
     goto out;
   }
 

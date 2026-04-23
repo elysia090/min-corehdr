@@ -192,6 +192,23 @@ Example:
 
 min-corehdr --btf /sys/kernel/btf/vmlinux --stats foo.bpf.o > vmlinux.h
 
+6.4 --expand-pointers
+
+Optional.
+
+Also include pointee types in the dependency closure.
+
+The default closure keeps pointer targets as forward declarations unless another required path
+reaches the pointee type. This keeps the generated header small for large kernel records. Use
+--expand-pointers when conservative compile-time completeness is more important than minimal output.
+
+Rules:
+
+* must not affect seed resolution
+* may increase output size
+* must remain deterministic
+* must not change stdout/stderr stream rules
+
 7. Output Stream Rules
 
 7.1 Stdout
@@ -285,6 +302,7 @@ Global options:
 Main options:
       --btf FILE
   -o, --output FILE
+      --expand-pointers
       --stats
 
 10. Error Message Style

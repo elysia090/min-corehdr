@@ -20,11 +20,13 @@ struct emit_ctx {
   const struct mch_type_set *required;
   unsigned char *record_state;
   unsigned char *fwd_state;
+  unsigned char *typedef_state;
   size_t type_count;
   struct mch_error *err;
 };
 
 static int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator, bool flexible_ok);
+static int emit_typedef_definition(struct emit_ctx *ctx, __u32 id);
 static int emit_decl(struct emit_ctx *ctx, __u32 id, const char *declarator) {
   return emit_decl_ex(ctx, id, declarator, true);
 }
@@ -318,8 +320,15 @@ static int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator, 
     return emit_qualified_decl(ctx, id, declarator, flexible_ok);
   case BTF_KIND_TYPE_TAG:
   case BTF_KIND_DECL_TAG:
-  case BTF_KIND_TYPEDEF:
     return emit_decl_ex(ctx, type->type, declarator, flexible_ok);
+
+  case BTF_KIND_TYPEDEF:
+    name = mch_btf_type_name(ctx->btf, type);
+    if (name[0] == '\0') {
+      return emit_decl_ex(ctx, type->type, declarator, flexible_ok);
+    }
+    fprintf(ctx->out, "%s%s%s", name, declarator[0] != '\0' ? " " : "", declarator);
+    return 0;
 
   case BTF_KIND_STRUCT:
   case BTF_KIND_UNION:
@@ -362,6 +371,37 @@ static int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator, 
 }
 
 static int emit_hard_deps(struct emit_ctx *ctx, __u32 id);
+
+static bool typedef_target_needs_hard_deps(struct emit_ctx *ctx, __u32 id) {
+  for (unsigned int depth = 0; depth < 32; depth++) {
+    const struct btf_type *type = type_by_id(ctx, id);
+    unsigned int kind;
+
+    if (type == NULL) {
+      return false;
+    }
+
+    kind = btf_kind(type);
+    switch (kind) {
+    case BTF_KIND_CONST:
+    case BTF_KIND_VOLATILE:
+    case BTF_KIND_RESTRICT:
+    case BTF_KIND_TYPE_TAG:
+    case BTF_KIND_DECL_TAG:
+      id = type->type;
+      continue;
+    case BTF_KIND_ARRAY:
+      return true;
+    case BTF_KIND_STRUCT:
+    case BTF_KIND_UNION:
+      return mch_btf_type_name(ctx->btf, type)[0] == '\0';
+    default:
+      return false;
+    }
+  }
+
+  return true;
+}
 
 static int emit_forward_decl(struct emit_ctx *ctx, __u32 id) {
   const struct btf_type *type = type_by_id(ctx, id);
@@ -406,6 +446,7 @@ static int emit_soft_deps(struct emit_ctx *ctx, __u32 id) {
   kind = btf_kind(type);
   switch (kind) {
   case BTF_KIND_TYPEDEF:
+    return emit_typedef_definition(ctx, id);
   case BTF_KIND_VOLATILE:
   case BTF_KIND_CONST:
   case BTF_KIND_RESTRICT:
@@ -503,6 +544,10 @@ static int emit_hard_deps(struct emit_ctx *ctx, __u32 id) {
     return emit_hard_deps(ctx, array->type);
   }
   case BTF_KIND_TYPEDEF:
+    if (emit_hard_deps(ctx, type->type) != 0) {
+      return -1;
+    }
+    return emit_typedef_definition(ctx, id);
   case BTF_KIND_VOLATILE:
   case BTF_KIND_CONST:
   case BTF_KIND_RESTRICT:
@@ -581,13 +626,28 @@ static int emit_typedef_definition(struct emit_ctx *ctx, __u32 id) {
   if (type == NULL) {
     return -1;
   }
+  if (btf_kind(type) != BTF_KIND_TYPEDEF) {
+    return 0;
+  }
+  if (ctx->typedef_state[id] == 2) {
+    return 0;
+  }
+  if (ctx->typedef_state[id] == 1) {
+    mch_error_set(ctx->err, "typedef dependency cycle at type id %u", id);
+    return -1;
+  }
 
   name = mch_btf_type_name(ctx->btf, type);
   if (name[0] == '\0') {
     return 0;
   }
 
-  if (emit_soft_deps(ctx, type->type) != 0) {
+  ctx->typedef_state[id] = 1;
+  if (typedef_target_needs_hard_deps(ctx, type->type)) {
+    if (emit_hard_deps(ctx, type->type) != 0) {
+      return -1;
+    }
+  } else if (emit_soft_deps(ctx, type->type) != 0) {
     return -1;
   }
 
@@ -596,6 +656,7 @@ static int emit_typedef_definition(struct emit_ctx *ctx, __u32 id) {
     return -1;
   }
   fputs(";\n\n", ctx->out);
+  ctx->typedef_state[id] = 2;
   return 0;
 }
 
@@ -685,6 +746,7 @@ int mch_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set 
       .required = required,
       .record_state = NULL,
       .fwd_state = NULL,
+      .typedef_state = NULL,
       .type_count = btf__type_cnt(btf),
       .err = err,
   };
@@ -698,6 +760,11 @@ int mch_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set 
   ctx.fwd_state = calloc(ctx.type_count == 0 ? 1 : ctx.type_count, sizeof(*ctx.fwd_state));
   if (ctx.fwd_state == NULL) {
     mch_error_set(err, "out of memory while preparing header forward declarations");
+    goto out;
+  }
+  ctx.typedef_state = calloc(ctx.type_count == 0 ? 1 : ctx.type_count, sizeof(*ctx.typedef_state));
+  if (ctx.typedef_state == NULL) {
+    mch_error_set(err, "out of memory while preparing header typedef declarations");
     goto out;
   }
   if (emit_groups_init(&groups, required->selected, err) != 0) {
@@ -726,14 +793,14 @@ int mch_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set 
     }
   }
 
-  for (size_t i = 0; i < groups.record_count; i++) {
-    if (emit_record_definition(&ctx, groups.records[i]) != 0) {
+  for (size_t i = 0; i < groups.typedef_count; i++) {
+    if (emit_typedef_definition(&ctx, groups.typedefs[i]) != 0) {
       goto out;
     }
   }
 
-  for (size_t i = 0; i < groups.typedef_count; i++) {
-    if (emit_typedef_definition(&ctx, groups.typedefs[i]) != 0) {
+  for (size_t i = 0; i < groups.record_count; i++) {
+    if (emit_record_definition(&ctx, groups.records[i]) != 0) {
       goto out;
     }
   }
@@ -744,6 +811,7 @@ int mch_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set 
 
 out:
   emit_groups_destroy(&groups);
+  free(ctx.typedef_state);
   free(ctx.fwd_state);
   free(ctx.record_state);
   return rc;

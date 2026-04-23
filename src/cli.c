@@ -6,6 +6,8 @@
 
 #include <bpf/libbpf.h>
 
+#include "min_corehdr/version.h"
+
 static int add_object(struct mch_cli_options *opts, char *path, struct mch_error *err) {
   char **next = realloc(opts->objects, (opts->object_count + 1) * sizeof(*next));
   if (next == NULL) {
@@ -101,6 +103,10 @@ int mch_cli_parse(int argc, char **argv, struct mch_cli_options *opts, struct mc
       opts->stats = true;
       continue;
     }
+    if (strcmp(arg, "--expand-pointers") == 0) {
+      opts->expand_pointers = true;
+      continue;
+    }
     if (strncmp(arg, "--btf=", 6) == 0) {
       if (set_btf_path(opts, arg + 6, err) != 0) {
         return -1;
@@ -190,6 +196,18 @@ int mch_cli_parse(int argc, char **argv, struct mch_cli_options *opts, struct mc
     mch_error_set(err, "missing OBJECT input");
     return -1;
   }
+  if (opts->output_path != NULL) {
+    if (strcmp(opts->output_path, opts->btf_path) == 0) {
+      mch_error_set(err, "output path must not match --btf input");
+      return -1;
+    }
+    for (size_t i = 0; i < opts->object_count; i++) {
+      if (strcmp(opts->output_path, opts->objects[i]) == 0) {
+        mch_error_set(err, "output path must not match OBJECT input");
+        return -1;
+      }
+    }
+  }
 
   return 0;
 }
@@ -213,12 +231,15 @@ void mch_cli_print_help(FILE *out, const char *argv0) {
   fprintf(out, "      --btf FILE   Base BTF file used as the kernel type source\n");
   fprintf(out, "  -o, --output FILE\n");
   fprintf(out, "                  Write the generated header to FILE\n");
+  fprintf(out, "      --expand-pointers\n");
+  fprintf(out, "                  Also include pointee types in dependency closure\n");
   fprintf(out, "      --stats      Print a short generation summary to stderr\n");
   fprintf(out, "\nExample:\n");
   fprintf(out, "  %s --btf /sys/kernel/btf/vmlinux -o vmlinux.h foo.bpf.o\n", prog);
 }
 
 void mch_cli_print_version(FILE *out) {
-  fprintf(out, "min-corehdr 0.1.0\n");
+  fprintf(out, "min-corehdr %s\n", MIN_COREHDR_VERSION);
+  fprintf(out, "git %s\n", MIN_COREHDR_GIT_REVISION);
   fprintf(out, "libbpf %s\n", libbpf_version_string());
 }

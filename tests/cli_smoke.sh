@@ -110,6 +110,14 @@ test "$rc" -eq 1
 grep -q 'failed to parse object BTF' "$tmpdir/missing-object.err"
 
 set +e
+"$tool" --btf "$kernel_btf" -o "$tmpdir/fixture.bpf.o" "$tmpdir/fixture.bpf.o" \
+  >"$tmpdir/output-collision.out" 2>"$tmpdir/output-collision.err"
+rc=$?
+set -e
+test "$rc" -eq 2
+grep -q 'output path must not match OBJECT input' "$tmpdir/output-collision.err"
+
+set +e
 "$tool" --btf "$kernel_btf" -o "$tmpdir/no-such-dir/out.h" "$tmpdir/fixture.bpf.o" \
   >"$tmpdir/output-open.out" 2>"$tmpdir/output-open.err"
 rc=$?
