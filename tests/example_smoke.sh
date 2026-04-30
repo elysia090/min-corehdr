@@ -27,7 +27,7 @@ if [ ! -r "$example_dir/exec_audit.bpf.c" ] || [ ! -r "$example_dir/local_types.
   exit 77
 fi
 
-tmpdir=${TMPDIR:-/tmp}/min-corehdr-example-smoke.$$
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/min-corehdr-example-smoke.XXXXXX")
 cleanup() {
   rm -rf "$tmpdir"
 }
@@ -45,7 +45,8 @@ finish() {
   exit "$rc"
 }
 trap finish EXIT INT TERM
-mkdir -p "$tmpdir/original" "$tmpdir/generated" "$tmpdir/recompiled"
+mkdir -p "$tmpdir/original" "$tmpdir/generated" "$tmpdir/generated-expand" "$tmpdir/recompiled" \
+  "$tmpdir/recompiled-expand"
 
 cp "$example_dir/exec_audit.bpf.c" "$example_dir/local_types.h" "$tmpdir/original/"
 
@@ -74,3 +75,11 @@ cp "$tmpdir/generated/local_types.h" "$tmpdir/recompiled/local_types.h"
 "$real_clang" $bpf_cflags -I"$tmpdir/recompiled" -c \
   "$tmpdir/recompiled/exec_audit.bpf.c" -o "$tmpdir/recompiled/exec_audit.bpf.o"
 llvm-readelf -S "$tmpdir/recompiled/exec_audit.bpf.o" | grep -Eq '\.BTF|\.BTF\.ext'
+
+"$tool" --expand-pointers --btf "$kernel_btf" -o "$tmpdir/generated-expand/local_types.h" \
+  "$tmpdir/original/exec_audit.bpf.o"
+cp "$example_dir/exec_audit.bpf.c" "$tmpdir/recompiled-expand/"
+cp "$tmpdir/generated-expand/local_types.h" "$tmpdir/recompiled-expand/local_types.h"
+"$real_clang" $bpf_cflags -I"$tmpdir/recompiled-expand" -c \
+  "$tmpdir/recompiled-expand/exec_audit.bpf.c" -o "$tmpdir/recompiled-expand/exec_audit.bpf.o"
+llvm-readelf -S "$tmpdir/recompiled-expand/exec_audit.bpf.o" | grep -Eq '\.BTF|\.BTF\.ext'

@@ -101,6 +101,14 @@ records to derive CO-RE relocation roots and source-aware diagnostics. This is i
 small and covered by malformed-record tests because libbpf does not expose a public CO-RE relocation
 iterator API.
 
+## Current Limits
+
+The v0.1 matcher is intentionally strict: named kernel types must resolve by exact same-name,
+same-kind lookup, ambiguous matches fail, and `struct`/`union` forward-declaration flavoring is not
+guessed. Anonymous enums are matched only when their enumerator names, values, signedness, size, and
+order exactly match the base BTF. These rules favor reproducible headers and clear failures over
+opaque best-effort output.
+
 ## License
 
 MIT. See `LICENSE`.

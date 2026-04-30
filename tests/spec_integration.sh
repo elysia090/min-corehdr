@@ -17,7 +17,7 @@ if ! command -v llvm-readelf >/dev/null 2>&1; then
   exit 77
 fi
 
-tmpdir=${TMPDIR:-/tmp}/min-corehdr-spec-integration.$$
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/min-corehdr-spec-integration.XXXXXX")
 cleanup() {
   rm -rf "$tmpdir"
 }

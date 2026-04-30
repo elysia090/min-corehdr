@@ -11,6 +11,10 @@
 
 #include "min_corehdr/btf_loader.h"
 
+#ifndef MCH_PRIVATE
+#define MCH_PRIVATE static
+#endif
+
 #ifndef BPF_LINE_INFO_LINE_NUM
 #define BPF_LINE_INFO_LINE_NUM(line_col) ((line_col) >> 10)
 #endif
@@ -92,10 +96,10 @@ static void set_resolution_detail(const struct btf *object_btf, __u32 root_type_
                        root_name, query_type_id, query_kind_name, query_label, base_result);
 }
 
-static int init_ext_info(struct mch_ext_info *info, const uint8_t *raw, __u32 raw_size,
-                         __u32 hdr_len, __u32 off, __u32 len, size_t min_rec_size,
-                         const char *label, const char *object_path, bool required,
-                         struct mch_error *err) {
+MCH_PRIVATE int init_ext_info(struct mch_ext_info *info, const uint8_t *raw, __u32 raw_size,
+                              __u32 hdr_len, __u32 off, __u32 len, size_t min_rec_size,
+                              const char *label, const char *object_path, bool required,
+                              struct mch_error *err) {
   const uint8_t *data;
   __u32 rec_size;
 
@@ -139,8 +143,8 @@ static int init_ext_info(struct mch_ext_info *info, const uint8_t *raw, __u32 ra
   return 0;
 }
 
-static const uint8_t *find_ext_info_section(const struct mch_ext_info *info, __u32 sec_name_off,
-                                            __u32 *num_info) {
+MCH_PRIVATE const uint8_t *find_ext_info_section(const struct mch_ext_info *info,
+                                                 __u32 sec_name_off, __u32 *num_info) {
   const uint8_t *pos;
 
   if (info == NULL || !info->present) {
@@ -332,11 +336,11 @@ static const char *core_relo_kind_name(enum bpf_core_relo_kind kind) {
   }
 }
 
-static int resolve_object_type_to_base(const struct mch_btf_index *base_index,
-                                       const struct btf *object_btf, __u32 object_type_id,
-                                       const char *object_path, const char *reference,
-                                       bool allow_program_local, unsigned int *base_id,
-                                       struct mch_error *err) {
+MCH_PRIVATE int resolve_object_type_to_base(const struct mch_btf_index *base_index,
+                                            const struct btf *object_btf, __u32 object_type_id,
+                                            const char *object_path, const char *reference,
+                                            bool allow_program_local, unsigned int *base_id,
+                                            struct mch_error *err) {
   const char *root_name = NULL;
   const char *query_name = NULL;
   unsigned int query_kind = BTF_KIND_UNKN;
@@ -379,6 +383,22 @@ static int resolve_object_type_to_base(const struct mch_btf_index *base_index,
         set_resolution_detail(object_btf, object_type_id, query_id, query_name, query_kind,
                               reference, "ambiguous base matches", err);
         mch_error_set_hint(err, "v0.1 requires exactly one same-name, same-kind base BTF match");
+        return -1;
+      }
+      if (match != 0) {
+        return match;
+      }
+    } else if ((kind == BTF_KIND_ENUM || kind == BTF_KIND_ENUM64) && name[0] == '\0') {
+      query_id = id;
+      query_name = name;
+      query_kind = kind;
+      match = mch_btf_index_lookup_anonymous_enum(base_index, object_btf, type, base_id);
+      if (match < 0) {
+        mch_error_set(err, "ambiguous anonymous kernel enum");
+        mch_error_set_file(err, object_path);
+        set_resolution_detail(object_btf, object_type_id, query_id, query_name, query_kind,
+                              reference, "ambiguous base matches", err);
+        mch_error_set_hint(err, "v0.1 requires exactly one base BTF match for anonymous enums");
         return -1;
       }
       if (match != 0) {
@@ -448,7 +468,7 @@ int mch_extract_object_seeds(const struct mch_btf_index *base_index, const struc
       continue;
     }
     name = mch_btf_type_name(object_btf, type);
-    if (name[0] == '\0') {
+    if (name[0] == '\0' && kind != BTF_KIND_ENUM && kind != BTF_KIND_ENUM64) {
       continue;
     }
 
@@ -519,11 +539,20 @@ int mch_extract_core_relo_seeds(const struct mch_btf_index *base_index,
   if (header.hdr_len <
           offsetof(struct mch_btf_ext_header, core_relo_len) + sizeof(header.core_relo_len) ||
       header.hdr_len > raw_size) {
-    return 0;
+    mch_error_set(err, "object .BTF.ext has unsupported header length");
+    mch_error_set_file(err, object_path);
+    mch_error_set_hint(err,
+                       "rebuild the BPF object with a modern clang/libbpf-compatible toolchain");
+    return -1;
   }
   // LLVM_COV_EXCL_STOP
   // LLVM_COV_EXCL_START
-  if (header.hdr_len < sizeof(header) || header.core_relo_len == 0) {
+  if (header.hdr_len < sizeof(header)) {
+    mch_error_set(err, "object .BTF.ext header is truncated");
+    mch_error_set_file(err, object_path);
+    return -1;
+  }
+  if (header.core_relo_len == 0) {
     return 0;
   }
   // LLVM_COV_EXCL_STOP

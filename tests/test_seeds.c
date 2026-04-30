@@ -251,6 +251,46 @@ static int test_ambiguous_kernel_match_fails(void) {
   return 0;
 }
 
+static int test_anonymous_enum_seed_matches_by_values(void) {
+  struct mch_btf_index index;
+  struct mch_error err;
+  struct mch_type_set seeds;
+  struct mch_seed_stats stats;
+  struct btf *base;
+  struct btf *object;
+  int base_enum;
+  int object_enum;
+
+  mch_error_clear(&err);
+  mch_btf_index_init_empty(&index);
+  mch_seed_stats_init(&stats);
+
+  base = btf__new_empty();
+  object = btf__new_empty();
+  REQUIRE(libbpf_get_error(base) == 0);
+  REQUIRE(libbpf_get_error(object) == 0);
+
+  base_enum = btf__add_enum(base, "", 4);
+  REQUIRE(base_enum > 0);
+  REQUIRE(btf__add_enum_value(base, "ANON_KERNEL_VALUE", 11) == 0);
+  object_enum = btf__add_enum(object, "", 4);
+  REQUIRE(object_enum > 0);
+  REQUIRE(btf__add_enum_value(object, "ANON_KERNEL_VALUE", 11) == 0);
+
+  REQUIRE(mch_btf_index_init(&index, base, &err) == 0);
+  REQUIRE(mch_type_set_init(&seeds, btf__type_cnt(base)) == 0);
+  REQUIRE(mch_extract_object_seeds(&index, object, "anon-enum.bpf.o", &seeds, &stats, &err) == 0);
+  REQUIRE(mch_type_set_contains(&seeds, (size_t)base_enum));
+  REQUIRE(stats.candidates == 1);
+  REQUIRE(stats.kernel_types == 1);
+
+  mch_type_set_destroy(&seeds);
+  mch_btf_index_destroy(&index);
+  btf__free(object);
+  btf__free(base);
+  return 0;
+}
+
 static int test_core_relo_synthetic_ext(void) {
   struct mch_btf_index index;
   struct mch_error err;
@@ -940,5 +980,6 @@ int main(void) {
   REQUIRE(test_core_relo_malformed_ext() == 0);
   REQUIRE(test_core_relo_kind_diagnostics() == 0);
   REQUIRE(test_ambiguous_kernel_match_fails() == 0);
+  REQUIRE(test_anonymous_enum_seed_matches_by_values() == 0);
   return 0;
 }

@@ -19,12 +19,11 @@ if ! command -v llvm-readelf >/dev/null 2>&1; then
   exit 77
 fi
 
-tmpdir=${TMPDIR:-/tmp}/min-corehdr-cli-smoke.$$
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/min-corehdr-cli-smoke.XXXXXX")
 cleanup() {
   rm -rf "$tmpdir"
 }
 trap cleanup EXIT INT TERM
-mkdir -p "$tmpdir"
 
 cat > "$tmpdir/fixture.bpf.c" <<'EOF'
 #define SEC(name) __attribute__((section(name), used))

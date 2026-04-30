@@ -9,6 +9,10 @@
 
 #include "min_corehdr/btf_loader.h"
 
+#ifndef MCH_PRIVATE
+#define MCH_PRIVATE static
+#endif
+
 struct closure_worklist {
   __u32 *ids;
   size_t len;
@@ -37,7 +41,7 @@ static int worklist_init(struct closure_worklist *worklist, size_t initial_cap,
   return 0;
 }
 
-static int worklist_push(struct closure_worklist *worklist, __u32 id, struct mch_error *err) {
+MCH_PRIVATE int worklist_push(struct closure_worklist *worklist, __u32 id, struct mch_error *err) {
   if (worklist->len == worklist->cap) {
     size_t next_cap = worklist->cap * 2;
     __u32 *next;
@@ -59,9 +63,9 @@ static int worklist_push(struct closure_worklist *worklist, __u32 id, struct mch
   return 0;
 }
 
-static int add_dep(const struct btf *btf, struct mch_type_set *required, __u32 id,
-                   struct closure_worklist *worklist, struct mch_closure_stats *stats,
-                   struct mch_error *err) {
+MCH_PRIVATE int add_dep(const struct btf *btf, struct mch_type_set *required, __u32 id,
+                        struct closure_worklist *worklist, struct mch_closure_stats *stats,
+                        struct mch_error *err) {
   if (id == 0) {
     return 0;
   }
@@ -79,10 +83,10 @@ static int add_dep(const struct btf *btf, struct mch_type_set *required, __u32 i
   return 0;
 }
 
-static int add_type_deps(const struct btf *btf, const struct btf_type *type,
-                         struct mch_type_set *required, struct mch_closure_stats *stats,
-                         struct closure_worklist *worklist,
-                         const struct mch_closure_options *options, struct mch_error *err) {
+MCH_PRIVATE int add_type_deps(const struct btf *btf, const struct btf_type *type,
+                              struct mch_type_set *required, struct mch_closure_stats *stats,
+                              struct closure_worklist *worklist,
+                              const struct mch_closure_options *options, struct mch_error *err) {
   unsigned int kind = btf_kind(type);
 
   switch (kind) {
