@@ -10,6 +10,10 @@
 
 #include "min_corehdr/btf_loader.h"
 
+#ifndef MCH_PRIVATE
+#define MCH_PRIVATE static
+#endif
+
 #ifndef BTF_MEMBER_BITFIELD_SIZE
 #define BTF_MEMBER_BITFIELD_SIZE(value) ((value) >> 24)
 #endif
@@ -25,8 +29,9 @@ struct emit_ctx {
   struct mch_error *err;
 };
 
-static int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator, bool flexible_ok);
-static int emit_typedef_definition(struct emit_ctx *ctx, __u32 id);
+MCH_PRIVATE int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator,
+                             bool flexible_ok);
+MCH_PRIVATE int emit_typedef_definition(struct emit_ctx *ctx, __u32 id);
 static int emit_decl(struct emit_ctx *ctx, __u32 id, const char *declarator) {
   return emit_decl_ex(ctx, id, declarator, true);
 }
@@ -98,16 +103,16 @@ static const char *float_type_name(const struct btf_type *type) {
   }
 }
 
-static const char *type_qualifier_name(unsigned int kind) {
+static unsigned int type_qualifier_bit(unsigned int kind) {
   switch (kind) {
   case BTF_KIND_CONST:
-    return "const";
+    return 1u << 0;
   case BTF_KIND_VOLATILE:
-    return "volatile";
+    return 1u << 1;
   case BTF_KIND_RESTRICT:
-    return "restrict";
+    return 1u << 2;
   default:
-    return NULL;
+    return 0;
   }
 }
 
@@ -118,11 +123,51 @@ static int append_type_qualifier(char *buf, size_t size, const char *qualifier) 
   return n < 0 || (size_t)n >= size - len ? -1 : 0;
 }
 
+static int append_qualifier_mask(char *buf, size_t size, unsigned int mask) {
+  static const struct {
+    unsigned int bit;
+    const char *name;
+  } qualifiers[] = {
+      {1u << 0, "const"},
+      {1u << 1, "volatile"},
+      {1u << 2, "restrict"},
+  };
+
+  for (size_t i = 0; i < sizeof(qualifiers) / sizeof(qualifiers[0]); i++) {
+    if ((mask & qualifiers[i].bit) != 0 &&
+        append_type_qualifier(buf, size, qualifiers[i].name) != 0) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+static unsigned int leading_qualifier_mask(struct emit_ctx *ctx, __u32 id) {
+  unsigned int mask = 0;
+
+  for (unsigned int depth = 0; depth < 32; depth++) {
+    const struct btf_type *type = type_by_id(ctx, id);
+    unsigned int bit;
+
+    if (type == NULL) {
+      return mask;
+    }
+    bit = type_qualifier_bit(btf_kind(type));
+    if (bit == 0) {
+      return mask;
+    }
+    mask |= bit;
+    id = type->type;
+  }
+
+  return mask;
+}
+
 static int emit_qualified_decl(struct emit_ctx *ctx, __u32 id, const char *declarator,
                                bool flexible_ok) {
   char qualifiers[64] = "";
+  unsigned int qualifier_mask = 0;
   const struct btf_type *type;
-  const char *qualifier;
   __u32 current = id;
 
   for (;;) {
@@ -131,15 +176,22 @@ static int emit_qualified_decl(struct emit_ctx *ctx, __u32 id, const char *decla
       return -1;
     }
 
-    qualifier = type_qualifier_name(btf_kind(type));
-    if (qualifier == NULL) {
+    unsigned int bit = type_qualifier_bit(btf_kind(type));
+    if (bit == 0) {
       break;
     }
-    if (append_type_qualifier(qualifiers, sizeof(qualifiers), qualifier) != 0) {
-      mch_error_set(ctx->err, "type qualifier chain is too long");
-      return -1;
-    }
+    qualifier_mask |= bit;
     current = type->type;
+  }
+
+  if (btf_kind(type) == BTF_KIND_ARRAY) {
+    const struct btf_array *array = btf_array(type);
+
+    qualifier_mask &= ~leading_qualifier_mask(ctx, array->type);
+  }
+  if (append_qualifier_mask(qualifiers, sizeof(qualifiers), qualifier_mask) != 0) {
+    mch_error_set(ctx->err, "type qualifier chain is too long");
+    return -1;
   }
 
   if (btf_kind(type) == BTF_KIND_PTR) {
@@ -194,7 +246,7 @@ static int emit_params(struct emit_ctx *ctx, const struct btf_type *proto) {
   return 0;
 }
 
-static int emit_func_decl(struct emit_ctx *ctx, __u32 proto_id, const char *declarator) {
+MCH_PRIVATE int emit_func_decl(struct emit_ctx *ctx, __u32 proto_id, const char *declarator) {
   const struct btf_type *proto = type_by_id(ctx, proto_id);
 
   if (proto == NULL) {
@@ -220,7 +272,7 @@ static int emit_func_decl(struct emit_ctx *ctx, __u32 proto_id, const char *decl
   return 0;
 }
 
-static int emit_record_body(struct emit_ctx *ctx, const struct btf_type *record) {
+MCH_PRIVATE int emit_record_body(struct emit_ctx *ctx, const struct btf_type *record) {
   const struct btf_member *members = btf_members(record);
   __u16 vlen = btf_vlen(record);
 
@@ -247,8 +299,8 @@ static int emit_record_body(struct emit_ctx *ctx, const struct btf_type *record)
   return 0;
 }
 
-static int emit_inline_record(struct emit_ctx *ctx, const struct btf_type *type,
-                              const char *declarator) {
+MCH_PRIVATE int emit_inline_record(struct emit_ctx *ctx, const struct btf_type *type,
+                                   const char *declarator) {
   fputs(btf_kind(type) == BTF_KIND_STRUCT ? "struct" : "union", ctx->out);
   if (emit_record_body(ctx, type) != 0) {
     return -1;
@@ -259,7 +311,8 @@ static int emit_inline_record(struct emit_ctx *ctx, const struct btf_type *type,
   return 0;
 }
 
-static int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator, bool flexible_ok) {
+MCH_PRIVATE int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator,
+                             bool flexible_ok) {
   const struct btf_type *type;
   const char *name;
   unsigned int kind;
@@ -301,8 +354,7 @@ static int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator, 
     const char *fmt = declarator[0] == '*' ? "(%s)[%u]" : "%s[%u]";
 
     if (array->nelems == 0) {
-      fmt = flexible_ok ? (declarator[0] == '*' ? "(%s)[]" : "%s[]")
-                        : (declarator[0] == '*' ? "(%s)[0]" : "%s[0]");
+      fmt = declarator[0] == '*' ? "(%s)[0]" : "%s[0]";
       if (make_declarator(next, sizeof(next), fmt, declarator, 0) != 0) {
         mch_error_set(ctx->err, "array declarator is too long");
         return -1;
@@ -370,7 +422,7 @@ static int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator, 
   }
 }
 
-static int emit_hard_deps(struct emit_ctx *ctx, __u32 id);
+MCH_PRIVATE int emit_hard_deps(struct emit_ctx *ctx, __u32 id);
 
 static bool typedef_target_needs_hard_deps(struct emit_ctx *ctx, __u32 id) {
   for (unsigned int depth = 0; depth < 32; depth++) {
@@ -403,7 +455,7 @@ static bool typedef_target_needs_hard_deps(struct emit_ctx *ctx, __u32 id) {
   return true;
 }
 
-static int emit_forward_decl(struct emit_ctx *ctx, __u32 id) {
+MCH_PRIVATE int emit_forward_decl(struct emit_ctx *ctx, __u32 id) {
   const struct btf_type *type = type_by_id(ctx, id);
   const char *name;
   unsigned int kind;
@@ -430,7 +482,7 @@ static int emit_forward_decl(struct emit_ctx *ctx, __u32 id) {
   return 0;
 }
 
-static int emit_soft_deps(struct emit_ctx *ctx, __u32 id) {
+MCH_PRIVATE int emit_soft_deps(struct emit_ctx *ctx, __u32 id) {
   const struct btf_type *type;
   unsigned int kind;
 
@@ -485,7 +537,7 @@ static int emit_soft_deps(struct emit_ctx *ctx, __u32 id) {
   }
 }
 
-static int emit_record_definition(struct emit_ctx *ctx, __u32 id) {
+MCH_PRIVATE int emit_record_definition(struct emit_ctx *ctx, __u32 id) {
   const struct btf_type *type = type_by_id(ctx, id);
   const struct btf_member *members;
   const char *name;
@@ -524,7 +576,7 @@ static int emit_record_definition(struct emit_ctx *ctx, __u32 id) {
   return 0;
 }
 
-static int emit_hard_deps(struct emit_ctx *ctx, __u32 id) {
+MCH_PRIVATE int emit_hard_deps(struct emit_ctx *ctx, __u32 id) {
   const struct btf_type *type = type_by_id(ctx, id);
   unsigned int kind;
 
@@ -577,20 +629,19 @@ static int emit_hard_deps(struct emit_ctx *ctx, __u32 id) {
   }
 }
 
-static int emit_enum_definition(struct emit_ctx *ctx, __u32 id) {
+MCH_PRIVATE int emit_enum_definition(struct emit_ctx *ctx, __u32 id) {
   const struct btf_type *type = type_by_id(ctx, id);
   const char *name;
+  bool has_name;
 
   if (type == NULL) {
     return -1;
   }
 
   name = mch_btf_type_name(ctx->btf, type);
-  if (name[0] == '\0') {
-    return 0;
-  }
+  has_name = name[0] != '\0';
 
-  fprintf(ctx->out, "enum %s {\n", name);
+  fprintf(ctx->out, has_name ? "enum %s {\n" : "enum {\n", name);
   if (btf_kind(type) == BTF_KIND_ENUM) {
     const struct btf_enum *values = btf_enum(type);
     __u16 vlen = btf_vlen(type);
@@ -619,7 +670,7 @@ static int emit_enum_definition(struct emit_ctx *ctx, __u32 id) {
   return 0;
 }
 
-static int emit_typedef_definition(struct emit_ctx *ctx, __u32 id) {
+MCH_PRIVATE int emit_typedef_definition(struct emit_ctx *ctx, __u32 id) {
   const struct btf_type *type = type_by_id(ctx, id);
   const char *name;
 

@@ -247,6 +247,7 @@ static int test_emitter_output_and_determinism(void) {
   REQUIRE(strstr(first, "preserve_access_index") != NULL);
   REQUIRE(strstr(first, "enum color") != NULL);
   REQUIRE(strstr(first, "COLOR_GREEN = 7") != NULL);
+  REQUIRE(strstr(first, "ANON_VALUE = 3") != NULL);
   REQUIRE(strstr(first, "enum wide_color") != NULL);
   REQUIRE(strstr(first, "WIDE_BLUE = 4294967296ULL") != NULL);
   REQUIRE(strstr(first, "enum signed_wide") != NULL);
@@ -370,6 +371,9 @@ static int test_edge_declarators_and_recursive_records(void) {
   int int_id;
   int signed8_id;
   int small_float_id;
+  int const_int_id;
+  int const_array_id;
+  int const_const_array_id;
   int zero_array_id;
   int zero_array_ptr_id;
   int fixed_array_id;
@@ -391,6 +395,12 @@ static int test_edge_declarators_and_recursive_records(void) {
   REQUIRE(signed8_id > 0);
   small_float_id = btf__add_float(btf, "small_float", 2);
   REQUIRE(small_float_id > 0);
+  const_int_id = btf__add_const(btf, int_id);
+  REQUIRE(const_int_id > 0);
+  const_array_id = btf__add_array(btf, const_int_id, int_id, 0);
+  REQUIRE(const_array_id > 0);
+  const_const_array_id = btf__add_const(btf, const_array_id);
+  REQUIRE(const_const_array_id > 0);
   zero_array_id = btf__add_array(btf, int_id, int_id, 0);
   REQUIRE(zero_array_id > 0);
   zero_array_ptr_id = btf__add_ptr(btf, zero_array_id);
@@ -413,6 +423,7 @@ static int test_edge_declarators_and_recursive_records(void) {
   REQUIRE(root_id > 0);
   REQUIRE(btf__add_field(btf, "tiny", signed8_id, 0, 0) == 0);
   REQUIRE(btf__add_field(btf, "small", small_float_id, 32, 0) == 0);
+  REQUIRE(btf__add_field(btf, "name", const_const_array_id, 48, 0) == 0);
   REQUIRE(btf__add_field(btf, "array_ref", fixed_array_ptr_id, 64, 0) == 0);
   REQUIRE(btf__add_field(btf, "flex_ptr", zero_array_ptr_id, 128, 0) == 0);
   REQUIRE(btf__add_field(btf, "flex", zero_array_id, 192, 0) == 0);
@@ -428,12 +439,15 @@ static int test_edge_declarators_and_recursive_records(void) {
 
   REQUIRE(strstr(header, "signed char tiny;") != NULL);
   REQUIRE(strstr(header, "double small;") != NULL);
+  REQUIRE(strstr(header, "const int name[0];") != NULL);
+  REQUIRE(strstr(header, "const const") == NULL);
   REQUIRE(strstr(header, "int (*array_ref)[3];") != NULL);
   REQUIRE(strstr(header, "int (*flex_ptr)[0];") != NULL);
   REQUIRE(strstr(header, "int flex[0];") != NULL);
-  REQUIRE(strstr(header, "int tail[];") != NULL);
+  REQUIRE(strstr(header, "int tail[0];") != NULL);
   REQUIRE(strstr(header, "struct future_struct;") != NULL);
   REQUIRE(strstr(header, "struct future_struct future;") != NULL);
+  REQUIRE(strstr(header, "ANON64 = 9ULL") != NULL);
   REQUIRE(strstr(header, "unsigned long long anonymous_wide;") != NULL);
   REQUIRE(strstr(header, "struct node {") != NULL);
   REQUIRE(strstr(header, "struct node self;") != NULL);
@@ -470,20 +484,6 @@ static int test_declarator_limit_failures(void) {
   int int_id;
   int current_id;
   int typedef_id;
-
-  btf = btf__new_empty();
-  REQUIRE(libbpf_get_error(btf) == 0);
-  int_id = btf__add_int(btf, "int", 4, BTF_INT_SIGNED);
-  REQUIRE(int_id > 0);
-  current_id = int_id;
-  for (size_t i = 0; i < 40; i++) {
-    current_id = btf__add_const(btf, current_id);
-    REQUIRE(current_id > 0);
-  }
-  typedef_id = btf__add_typedef(btf, "too_qualified_t", current_id);
-  REQUIRE(typedef_id > 0);
-  REQUIRE(expect_emit_typedef_failure(btf, typedef_id, "qualifier chain is too long") == 0);
-  btf__free(btf);
 
   btf = btf__new_empty();
   REQUIRE(libbpf_get_error(btf) == 0);

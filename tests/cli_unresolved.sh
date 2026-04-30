@@ -13,12 +13,11 @@ if ! command -v clang >/dev/null 2>&1; then
   exit 77
 fi
 
-tmpdir=${TMPDIR:-/tmp}/min-corehdr-cli-unresolved.$$
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/min-corehdr-cli-unresolved.XXXXXX")
 cleanup() {
   rm -rf "$tmpdir"
 }
 trap cleanup EXIT INT TERM
-mkdir -p "$tmpdir"
 
 cat > "$tmpdir/bad.bpf.c" <<'EOF'
 #define SEC(name) __attribute__((section(name), used))

@@ -17,6 +17,7 @@ struct mch_btf_index_entry {
 };
 
 struct mch_btf_index {
+  const struct btf *btf;
   uint32_t *buckets;
   struct mch_btf_index_entry *entries;
   size_t bucket_count;
@@ -28,5 +29,8 @@ int mch_btf_index_init(struct mch_btf_index *index, const struct btf *btf, struc
 void mch_btf_index_destroy(struct mch_btf_index *index);
 int mch_btf_index_lookup(const struct mch_btf_index *index, const char *name, unsigned int kind,
                          unsigned int *type_id);
+int mch_btf_index_lookup_anonymous_enum(const struct mch_btf_index *index,
+                                        const struct btf *object_btf,
+                                        const struct btf_type *object_type, unsigned int *type_id);
 
 #endif

@@ -142,7 +142,7 @@ if(BUILD_TESTING)
   target_link_libraries(test-seeds PRIVATE min-corehdr-core)
 
   add_library(test-seeds-private-seeds OBJECT src/seeds.c)
-  target_compile_definitions(test-seeds-private-seeds PRIVATE static=)
+  target_compile_definitions(test-seeds-private-seeds PRIVATE MCH_PRIVATE=)
   target_include_directories(test-seeds-private-seeds PRIVATE include)
 
   add_executable(test-seeds-private
@@ -160,7 +160,7 @@ if(BUILD_TESTING)
   target_link_libraries(test-closure PRIVATE min-corehdr-core)
 
   add_library(test-closure-private-closure OBJECT src/closure.c)
-  target_compile_definitions(test-closure-private-closure PRIVATE static=)
+  target_compile_definitions(test-closure-private-closure PRIVATE MCH_PRIVATE=)
   target_include_directories(test-closure-private-closure PRIVATE include)
 
   add_executable(test-closure-private
@@ -176,7 +176,7 @@ if(BUILD_TESTING)
   target_link_libraries(test-emitter PRIVATE min-corehdr-core)
 
   add_library(test-emitter-private-emitter OBJECT src/emitter.c)
-  target_compile_definitions(test-emitter-private-emitter PRIVATE static=)
+  target_compile_definitions(test-emitter-private-emitter PRIVATE MCH_PRIVATE=)
   target_include_directories(test-emitter-private-emitter PRIVATE include)
 
   add_executable(test-emitter-private

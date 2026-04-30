@@ -18,12 +18,17 @@ if ! command -v clang >/dev/null 2>&1; then
   exit 1
 fi
 
-tmpdir=${TMPDIR:-/tmp}/min-corehdr-bench.$$
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/min-corehdr-bench.XXXXXX")
 cleanup() {
   rm -rf "$tmpdir"
 }
 trap cleanup EXIT INT TERM
-mkdir -p "$tmpdir"
+
+quote_for_sh() {
+  printf "'"
+  printf "%s" "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
 
 example_dir="$root/examples/minimal"
 fixture_source="$tmpdir/fixture.bpf.c"
@@ -60,13 +65,15 @@ fi
 real_clang=$(clang -print-prog-name=clang)
 "$real_clang" -target bpf -g -O2 -I"$tmpdir" -c "$fixture_source" -o "$fixture_object"
 
-cmd="$tool --btf $kernel_btf -o $tmpdir/vmlinux.h $fixture_object"
+cmd="$(quote_for_sh "$tool") --btf $(quote_for_sh "$kernel_btf") -o $(quote_for_sh "$tmpdir/vmlinux.h") $(quote_for_sh "$fixture_object")"
+
 if command -v hyperfine >/dev/null 2>&1; then
-  hyperfine --warmup 3 --runs 10 "$cmd"
+  hyperfine --warmup 3 --runs 10 --shell=none "$cmd"
 else
   i=0
   while [ "$i" -lt 10 ]; do
-    /usr/bin/time -f 'elapsed=%e user=%U sys=%S maxrss_kb=%M' sh -c "$cmd"
+    /usr/bin/time -f 'elapsed=%e user=%U sys=%S maxrss_kb=%M' \
+      "$tool" --btf "$kernel_btf" -o "$tmpdir/vmlinux.h" "$fixture_object"
     i=$((i + 1))
   done
 fi

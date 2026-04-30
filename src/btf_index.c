@@ -39,6 +39,7 @@ static uint32_t hash_name_kind(const char *name, unsigned int kind) {
 }
 
 void mch_btf_index_init_empty(struct mch_btf_index *index) {
+  index->btf = NULL;
   index->buckets = NULL;
   index->entries = NULL;
   index->bucket_count = 0;
@@ -103,6 +104,7 @@ int mch_btf_index_init(struct mch_btf_index *index, const struct btf *btf, struc
   }
 
   index->bucket_count = bucket_count;
+  index->btf = btf;
   init_buckets(index->buckets, index->bucket_count);
   for (__u32 id = 1; id < type_count; id++) {
     const struct btf_type *type = btf__type_by_id(btf, id);
@@ -156,4 +158,89 @@ int mch_btf_index_lookup(const struct mch_btf_index *index, const char *name, un
   }
 
   return 0;
+}
+
+static bool enum_value_matches(const struct btf *left_btf, const struct btf_type *left_type,
+                               const struct btf *right_btf, const struct btf_type *right_type,
+                               __u16 i) {
+  const char *left_name;
+  const char *right_name;
+
+  if (btf_kind(left_type) == BTF_KIND_ENUM) {
+    const struct btf_enum *left_values = btf_enum(left_type);
+    const struct btf_enum *right_values = btf_enum(right_type);
+
+    left_name = btf__name_by_offset(left_btf, left_values[i].name_off);
+    right_name = btf__name_by_offset(right_btf, right_values[i].name_off);
+    return left_name != NULL && right_name != NULL && strcmp(left_name, right_name) == 0 &&
+           left_values[i].val == right_values[i].val;
+  }
+
+  const struct btf_enum64 *left_values = btf_enum64(left_type);
+  const struct btf_enum64 *right_values = btf_enum64(right_type);
+
+  left_name = btf__name_by_offset(left_btf, left_values[i].name_off);
+  right_name = btf__name_by_offset(right_btf, right_values[i].name_off);
+  return left_name != NULL && right_name != NULL && strcmp(left_name, right_name) == 0 &&
+         left_values[i].val_lo32 == right_values[i].val_lo32 &&
+         left_values[i].val_hi32 == right_values[i].val_hi32;
+}
+
+static bool anonymous_enum_matches(const struct btf *base_btf, const struct btf_type *base_type,
+                                   const struct btf *object_btf,
+                                   const struct btf_type *object_type) {
+  __u16 vlen = btf_vlen(object_type);
+
+  if (btf_kind(base_type) != btf_kind(object_type) || base_type->size != object_type->size ||
+      btf_kflag(base_type) != btf_kflag(object_type) || btf_vlen(base_type) != vlen ||
+      mch_btf_type_name(base_btf, base_type)[0] != '\0') {
+    return false;
+  }
+
+  for (__u16 i = 0; i < vlen; i++) {
+    if (!enum_value_matches(base_btf, base_type, object_btf, object_type, i)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+int mch_btf_index_lookup_anonymous_enum(const struct mch_btf_index *index,
+                                        const struct btf *object_btf,
+                                        const struct btf_type *object_type, unsigned int *type_id) {
+  unsigned int found = 0;
+  unsigned int matches = 0;
+  unsigned int kind;
+
+  if (index == NULL || index->btf == NULL || object_btf == NULL || object_type == NULL ||
+      type_id == NULL) {
+    return 0;
+  }
+
+  kind = btf_kind(object_type);
+  if ((kind != BTF_KIND_ENUM && kind != BTF_KIND_ENUM64) ||
+      mch_btf_type_name(object_btf, object_type)[0] != '\0') {
+    return 0;
+  }
+
+  for (__u32 id = 1; id < btf__type_cnt(index->btf); id++) {
+    const struct btf_type *base_type = btf__type_by_id(index->btf, id);
+
+    if (base_type == NULL ||
+        !anonymous_enum_matches(index->btf, base_type, object_btf, object_type)) {
+      continue;
+    }
+    found = id;
+    matches++;
+    if (matches > 1) {
+      return -1;
+    }
+  }
+
+  if (matches == 0) {
+    return 0;
+  }
+  *type_id = found;
+  return 1;
 }
