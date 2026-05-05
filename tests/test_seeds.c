@@ -338,6 +338,70 @@ static int test_core_relo_synthetic_ext(void) {
   return 0;
 }
 
+static int test_core_relo_records_required_members(void) {
+  struct mch_btf_index index;
+  struct mch_error err;
+  struct mch_type_set seeds;
+  struct mch_member_filter members;
+  struct mch_seed_stats stats;
+  struct btf_ext *ext;
+  struct btf *base;
+  struct btf *object;
+  uint8_t core[sizeof(__u32) + sizeof(struct test_btf_ext_info_sec) + sizeof(struct bpf_core_relo)];
+  uint8_t *pos = core;
+  int base_int;
+  int base_task;
+  int object_int;
+  int object_task;
+  int access_off;
+
+  mch_error_clear(&err);
+  mch_btf_index_init_empty(&index);
+  mch_seed_stats_init(&stats);
+  memset(&members, 0, sizeof(members));
+
+  base = btf__new_empty();
+  object = btf__new_empty();
+  REQUIRE(libbpf_get_error(base) == 0);
+  REQUIRE(libbpf_get_error(object) == 0);
+  base_int = btf__add_int(base, "int", 4, BTF_INT_SIGNED);
+  REQUIRE(base_int > 0);
+  base_task = btf__add_struct(base, "task_struct", 8);
+  REQUIRE(base_task > 0);
+  REQUIRE(btf__add_field(base, "pid", base_int, 0, 0) == 0);
+  REQUIRE(btf__add_field(base, "unused", base_int, 32, 0) == 0);
+  object_int = btf__add_int(object, "int", 4, BTF_INT_SIGNED);
+  REQUIRE(object_int > 0);
+  object_task = btf__add_struct(object, "task_struct", 8);
+  REQUIRE(object_task > 0);
+  REQUIRE(btf__add_field(object, "pid", object_int, 0, 0) == 0);
+  REQUIRE(btf__add_field(object, "unused", object_int, 32, 0) == 0);
+  access_off = btf__add_str(object, "0:0");
+  REQUIRE(access_off > 0);
+
+  write_u32(&pos, sizeof(struct bpf_core_relo));
+  write_sec(&pos, 1);
+  write_relo_ex(&pos, (__u32)object_task, (__u32)access_off, BPF_CORE_FIELD_BYTE_OFFSET);
+  REQUIRE(make_core_ext(core, (uint32_t)(pos - core), &ext) == 0);
+
+  REQUIRE(mch_btf_index_init(&index, base, &err) == 0);
+  REQUIRE(mch_type_set_init(&seeds, btf__type_cnt(base)) == 0);
+  REQUIRE(mch_member_filter_init(&members, btf__type_cnt(base)) == 0);
+  REQUIRE(mch_extract_core_relo_seeds_with_members(&index, object, ext, "core-members.bpf.o",
+                                                   &seeds, &members, &stats, &err) == 0);
+  REQUIRE(mch_type_set_contains(&seeds, (size_t)base_task));
+  REQUIRE(mch_member_filter_contains(&members, (size_t)base_task, 0));
+  REQUIRE(!mch_member_filter_contains(&members, (size_t)base_task, 1));
+
+  mch_member_filter_destroy(&members);
+  btf_ext__free(ext);
+  mch_type_set_destroy(&seeds);
+  mch_btf_index_destroy(&index);
+  btf__free(object);
+  btf__free(base);
+  return 0;
+}
+
 static int test_core_relo_source_diagnostics(void) {
   struct mch_btf_index index;
   struct mch_error err;
@@ -970,6 +1034,7 @@ static int test_core_relo_malformed_ext(void) {
 int main(void) {
   REQUIRE(test_local_vs_kernel() == 0);
   REQUIRE(test_core_relo_synthetic_ext() == 0);
+  REQUIRE(test_core_relo_records_required_members() == 0);
   REQUIRE(test_core_relo_source_diagnostics() == 0);
   REQUIRE(test_core_relo_function_only_diagnostics() == 0);
   REQUIRE(test_core_relo_line_without_column_diagnostics() == 0);

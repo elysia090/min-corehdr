@@ -22,6 +22,7 @@ struct emit_ctx {
   FILE *out;
   const struct btf *btf;
   const struct mch_type_set *required;
+  const struct mch_member_filter *member_filter;
   unsigned char *record_state;
   unsigned char *fwd_state;
   unsigned char *typedef_state;
@@ -272,7 +273,7 @@ MCH_PRIVATE int emit_func_decl(struct emit_ctx *ctx, __u32 proto_id, const char 
   return 0;
 }
 
-MCH_PRIVATE int emit_record_body(struct emit_ctx *ctx, const struct btf_type *record) {
+MCH_PRIVATE int emit_record_body(struct emit_ctx *ctx, __u32 id, const struct btf_type *record) {
   const struct btf_member *members = btf_members(record);
   __u16 vlen = btf_vlen(record);
 
@@ -284,6 +285,10 @@ MCH_PRIVATE int emit_record_body(struct emit_ctx *ctx, const struct btf_type *re
 
     if (name == NULL) {
       name = "";
+    }
+    if (mch_member_filter_has_record(ctx->member_filter, id) &&
+        !mch_member_filter_contains(ctx->member_filter, id, i)) {
+      continue;
     }
 
     fputs("  ", ctx->out);
@@ -299,10 +304,10 @@ MCH_PRIVATE int emit_record_body(struct emit_ctx *ctx, const struct btf_type *re
   return 0;
 }
 
-MCH_PRIVATE int emit_inline_record(struct emit_ctx *ctx, const struct btf_type *type,
+MCH_PRIVATE int emit_inline_record(struct emit_ctx *ctx, const struct btf_type *type, __u32 id,
                                    const char *declarator) {
   fputs(btf_kind(type) == BTF_KIND_STRUCT ? "struct" : "union", ctx->out);
-  if (emit_record_body(ctx, type) != 0) {
+  if (emit_record_body(ctx, id, type) != 0) {
     return -1;
   }
   if (declarator[0] != '\0') {
@@ -387,7 +392,7 @@ MCH_PRIVATE int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declara
   case BTF_KIND_FWD:
     name = mch_btf_type_name(ctx->btf, type);
     if (name[0] == '\0' && kind != BTF_KIND_FWD) {
-      return emit_inline_record(ctx, type, declarator);
+      return emit_inline_record(ctx, type, id, declarator);
     }
     fprintf(ctx->out, "%s %s%s%s",
             (kind == BTF_KIND_UNION || (kind == BTF_KIND_FWD && btf_kflag(type))) ? "union"
@@ -560,6 +565,10 @@ MCH_PRIVATE int emit_record_definition(struct emit_ctx *ctx, __u32 id) {
   members = btf_members(type);
   vlen = btf_vlen(type);
   for (__u16 i = 0; i < vlen; i++) {
+    if (mch_member_filter_has_record(ctx->member_filter, id) &&
+        !mch_member_filter_contains(ctx->member_filter, id, i)) {
+      continue;
+    }
     if (emit_hard_deps(ctx, members[i].type) != 0) {
       return -1;
     }
@@ -567,7 +576,7 @@ MCH_PRIVATE int emit_record_definition(struct emit_ctx *ctx, __u32 id) {
 
   name = mch_btf_type_name(ctx->btf, type);
   fprintf(ctx->out, "%s %s", btf_kind(type) == BTF_KIND_STRUCT ? "struct" : "union", name);
-  if (emit_record_body(ctx, type) != 0) {
+  if (emit_record_body(ctx, id, type) != 0) {
     return -1;
   }
   fputs(";\n\n", ctx->out);
@@ -618,6 +627,10 @@ MCH_PRIVATE int emit_hard_deps(struct emit_ctx *ctx, __u32 id) {
     members = btf_members(type);
     vlen = btf_vlen(type);
     for (__u16 i = 0; i < vlen; i++) {
+      if (mch_member_filter_has_record(ctx->member_filter, id) &&
+          !mch_member_filter_contains(ctx->member_filter, id, i)) {
+        continue;
+      }
       if (emit_hard_deps(ctx, members[i].type) != 0) {
         return -1;
       }
@@ -788,13 +801,15 @@ static int collect_emit_groups(struct emit_ctx *ctx, struct emit_groups *groups)
   return 0;
 }
 
-int mch_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set *required,
-                    struct mch_error *err) {
+int mch_emit_header_with_options(FILE *out, const struct btf *btf,
+                                 const struct mch_type_set *required,
+                                 const struct mch_emit_options *options, struct mch_error *err) {
   struct emit_groups groups = {0};
   struct emit_ctx ctx = {
       .out = out,
       .btf = btf,
       .required = required,
+      .member_filter = options == NULL ? NULL : options->member_filter,
       .record_state = NULL,
       .fwd_state = NULL,
       .typedef_state = NULL,
@@ -866,4 +881,9 @@ out:
   free(ctx.fwd_state);
   free(ctx.record_state);
   return rc;
+}
+
+int mch_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set *required,
+                    struct mch_error *err) {
+  return mch_emit_header_with_options(out, btf, required, NULL, err);
 }

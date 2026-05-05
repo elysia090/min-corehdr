@@ -7,6 +7,7 @@
 #include <bpf/btf.h>
 
 #include "min_corehdr/error.h"
+#include "min_corehdr/member_filter.h"
 #include "min_corehdr/type_set.h"
 
 struct mch_closure_stats {
@@ -15,6 +16,7 @@ struct mch_closure_stats {
 
 struct mch_closure_options {
   bool expand_pointers;
+  const struct mch_member_filter *member_filter;
 };
 
 void mch_closure_stats_init(struct mch_closure_stats *stats);

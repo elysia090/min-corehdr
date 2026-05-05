@@ -336,6 +336,248 @@ static const char *core_relo_kind_name(enum bpf_core_relo_kind kind) {
   }
 }
 
+static bool is_field_relo_kind(enum bpf_core_relo_kind kind) {
+  switch (kind) {
+  case BPF_CORE_FIELD_BYTE_OFFSET:
+  case BPF_CORE_FIELD_BYTE_SIZE:
+  case BPF_CORE_FIELD_EXISTS:
+  case BPF_CORE_FIELD_SIGNED:
+  case BPF_CORE_FIELD_LSHIFT_U64:
+  case BPF_CORE_FIELD_RSHIFT_U64:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static const struct btf_type *peel_access_type(const struct btf *btf, __u32 *id) {
+  for (unsigned int depth = 0; depth < 64; depth++) {
+    const struct btf_type *type;
+
+    if (*id == 0 || *id >= btf__type_cnt(btf)) {
+      return NULL;
+    }
+
+    type = btf__type_by_id(btf, *id);
+    if (type == NULL) {
+      return NULL;
+    }
+
+    switch (btf_kind(type)) {
+    case BTF_KIND_TYPEDEF:
+    case BTF_KIND_VOLATILE:
+    case BTF_KIND_CONST:
+    case BTF_KIND_RESTRICT:
+    case BTF_KIND_DECL_TAG:
+    case BTF_KIND_TYPE_TAG:
+    case BTF_KIND_PTR:
+      *id = type->type;
+      continue;
+    case BTF_KIND_ARRAY: {
+      const struct btf_array *array = btf_array(type);
+      *id = array->type;
+      continue;
+    }
+    default:
+      return type;
+    }
+  }
+
+  return NULL;
+}
+
+static int parse_access_component(const char **cursor, __u32 *value) {
+  const char *pos = *cursor;
+  uint64_t parsed = 0;
+
+  if (*pos < '0' || *pos > '9') {
+    return -1;
+  }
+
+  while (*pos >= '0' && *pos <= '9') {
+    parsed = parsed * 10 + (uint64_t)(*pos - '0');
+    if (parsed > UINT32_MAX) {
+      return -1;
+    }
+    pos++;
+  }
+
+  if (*pos == ':') {
+    pos++;
+  } else if (*pos != '\0') {
+    return -1;
+  }
+
+  *cursor = pos;
+  *value = (__u32)parsed;
+  return 0;
+}
+
+static int find_base_member(const struct btf *base_btf, const struct btf_type *base_record,
+                            const char *member_name, __u32 fallback_index, __u32 *member_index) {
+  const struct btf_member *members = btf_members(base_record);
+  __u16 vlen = btf_vlen(base_record);
+
+  if (member_name != NULL && member_name[0] != '\0') {
+    for (__u16 i = 0; i < vlen; i++) {
+      const char *base_name = btf__name_by_offset(base_btf, members[i].name_off);
+
+      if (base_name != NULL && strcmp(base_name, member_name) == 0) {
+        *member_index = i;
+        return 1;
+      }
+    }
+    return 0;
+  }
+
+  if (fallback_index >= vlen) {
+    return 0;
+  }
+
+  *member_index = fallback_index;
+  return 1;
+}
+
+static int mark_base_member_path(const struct btf *base_btf, struct mch_type_set *seeds,
+                                 struct mch_member_filter *members, __u32 record_id,
+                                 const struct btf_type *record, const char *member_name,
+                                 __u32 fallback_index, unsigned int depth, __u32 *member_type,
+                                 struct mch_error *err) {
+  const struct btf_member *record_members = btf_members(record);
+  __u32 member_index = 0;
+
+  if (depth > 16) {
+    mch_error_set(err, "CO-RE member search through anonymous records is too deep");
+    return -1;
+  }
+
+  if (find_base_member(base_btf, record, member_name, fallback_index, &member_index) != 0) {
+    if (mch_member_filter_add(base_btf, members, record_id, member_index, err) != 0) {
+      return -1;
+    }
+    mch_type_set_add(seeds, record_id);
+    *member_type = record_members[member_index].type;
+    return 1;
+  }
+
+  if (member_name == NULL || member_name[0] == '\0') {
+    return 0;
+  }
+
+  for (__u16 i = 0; i < btf_vlen(record); i++) {
+    const char *base_name = btf__name_by_offset(base_btf, record_members[i].name_off);
+    const struct btf_type *nested;
+    __u32 nested_id = record_members[i].type;
+    int rc;
+
+    if (base_name != NULL && base_name[0] != '\0') {
+      continue;
+    }
+
+    nested = peel_access_type(base_btf, &nested_id);
+    if (nested == NULL ||
+        (btf_kind(nested) != BTF_KIND_STRUCT && btf_kind(nested) != BTF_KIND_UNION)) {
+      continue;
+    }
+
+    rc = mark_base_member_path(base_btf, seeds, members, nested_id, nested, member_name, UINT32_MAX,
+                               depth + 1, member_type, err);
+    if (rc < 0) {
+      return -1;
+    }
+    if (rc > 0) {
+      if (mch_member_filter_add(base_btf, members, record_id, i, err) != 0) {
+        return -1;
+      }
+      mch_type_set_add(seeds, record_id);
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static int record_core_relo_members(const struct mch_btf_index *base_index,
+                                    const struct btf *object_btf, const char *object_path,
+                                    const struct bpf_core_relo *relo, unsigned int base_id,
+                                    struct mch_type_set *seeds, struct mch_member_filter *members,
+                                    struct mch_error *err) {
+  const char *access = btf__str_by_offset(object_btf, relo->access_str_off);
+  const char *cursor = access;
+  __u32 ignored_root = 0;
+  __u32 object_id = relo->type_id;
+  __u32 current_base_id = base_id;
+
+  if (members == NULL || !is_field_relo_kind(relo->kind) || access == NULL || access[0] == '\0') {
+    return 0;
+  }
+
+  if (parse_access_component(&cursor, &ignored_root) != 0) {
+    mch_error_set(err, "CO-RE relocation has unsupported access string '%s'", access);
+    mch_error_set_file(err, object_path);
+    return -1;
+  }
+
+  while (*cursor != '\0') {
+    const struct btf_type *object_record;
+    const struct btf_type *base_record;
+    const struct btf_member *object_members;
+    const char *member_name;
+    __u32 object_member_index = 0;
+    __u32 base_member_type = 0;
+    int member_match;
+
+    if (parse_access_component(&cursor, &object_member_index) != 0) {
+      mch_error_set(err, "CO-RE relocation has unsupported access string '%s'", access);
+      mch_error_set_file(err, object_path);
+      return -1;
+    }
+
+    object_record = peel_access_type(object_btf, &object_id);
+    base_record = peel_access_type(base_index->btf, &current_base_id);
+    if (object_record == NULL || base_record == NULL ||
+        (btf_kind(object_record) != BTF_KIND_STRUCT && btf_kind(object_record) != BTF_KIND_UNION) ||
+        (btf_kind(base_record) != BTF_KIND_STRUCT && btf_kind(base_record) != BTF_KIND_UNION)) {
+      mch_error_set(err, "CO-RE relocation access does not resolve through records");
+      mch_error_set_file(err, object_path);
+      mch_error_set_detail(err, "access: %s; object type id: %u; base type id: %u", access,
+                           object_id, current_base_id);
+      return -1;
+    }
+    if (object_member_index >= btf_vlen(object_record)) {
+      mch_error_set(err, "CO-RE relocation references invalid member %u", object_member_index);
+      mch_error_set_file(err, object_path);
+      mch_error_set_detail(err, "access: %s; object type id: %u", access, object_id);
+      return -1;
+    }
+
+    object_members = btf_members(object_record);
+    member_name = btf__name_by_offset(object_btf, object_members[object_member_index].name_off);
+    member_match =
+        mark_base_member_path(base_index->btf, seeds, members, current_base_id, base_record,
+                              member_name, object_member_index, 0, &base_member_type, err);
+    if (member_match < 0) {
+      mch_error_set_file(err, object_path);
+      return -1;
+    }
+    if (member_match == 0) {
+      mch_error_set(err, "failed to resolve CO-RE member '%s'",
+                    member_name != NULL && member_name[0] != '\0' ? member_name : "<anonymous>");
+      mch_error_set_file(err, object_path);
+      mch_error_set_detail(err, "access: %s; base record: %s '%s'", access,
+                           mch_btf_kind_name(btf_kind(base_record)),
+                           mch_btf_type_name(base_index->btf, base_record));
+      mch_error_set_hint(err, "verify that --btf points to the intended target kernel BTF");
+      return -1;
+    }
+
+    object_id = object_members[object_member_index].type;
+    current_base_id = base_member_type;
+  }
+
+  return 0;
+}
+
 MCH_PRIVATE int resolve_object_type_to_base(const struct mch_btf_index *base_index,
                                             const struct btf *object_btf, __u32 object_type_id,
                                             const char *object_path, const char *reference,
@@ -496,6 +738,16 @@ int mch_extract_core_relo_seeds(const struct mch_btf_index *base_index,
                                 const struct btf *object_btf, const struct btf_ext *object_ext,
                                 const char *object_path, struct mch_type_set *seeds,
                                 struct mch_seed_stats *stats, struct mch_error *err) {
+  return mch_extract_core_relo_seeds_with_members(base_index, object_btf, object_ext, object_path,
+                                                  seeds, NULL, stats, err);
+}
+
+int mch_extract_core_relo_seeds_with_members(const struct mch_btf_index *base_index,
+                                             const struct btf *object_btf,
+                                             const struct btf_ext *object_ext,
+                                             const char *object_path, struct mch_type_set *seeds,
+                                             struct mch_member_filter *members,
+                                             struct mch_seed_stats *stats, struct mch_error *err) {
   struct mch_btf_ext_header header;
   struct mch_ext_info core_info = {0};
   struct mch_ext_info func_info = {0};
@@ -607,6 +859,12 @@ int mch_extract_core_relo_seeds(const struct mch_btf_index *base_index,
       }
       if (mch_type_set_add(seeds, base_id)) {
         stats->core_kernel_types++;
+      }
+      if (record_core_relo_members(base_index, object_btf, object_path, &relo, base_id, seeds,
+                                   members, err) != 0) {
+        set_core_relo_context(object_btf, &func_info, &line_info, sec.sec_name_off, &relo,
+                              relo_index, i, err);
+        return -1;
       }
     }
   }

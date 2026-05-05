@@ -8,6 +8,7 @@
 #include <linux/btf.h>
 
 #include "min_corehdr/error.h"
+#include "min_corehdr/member_filter.h"
 #include "min_corehdr/type_set.h"
 
 #ifndef BTF_INFO_ENC
@@ -19,6 +20,7 @@ struct emit_ctx {
   FILE *out;
   const struct btf *btf;
   const struct mch_type_set *required;
+  const struct mch_member_filter *member_filter;
   unsigned char *record_state;
   unsigned char *fwd_state;
   unsigned char *typedef_state;
@@ -28,8 +30,9 @@ struct emit_ctx {
 
 int emit_decl_ex(struct emit_ctx *ctx, __u32 id, const char *declarator, bool flexible_ok);
 int emit_func_decl(struct emit_ctx *ctx, __u32 proto_id, const char *declarator);
-int emit_record_body(struct emit_ctx *ctx, const struct btf_type *record);
-int emit_inline_record(struct emit_ctx *ctx, const struct btf_type *type, const char *declarator);
+int emit_record_body(struct emit_ctx *ctx, __u32 id, const struct btf_type *record);
+int emit_inline_record(struct emit_ctx *ctx, const struct btf_type *type, __u32 id,
+                       const char *declarator);
 int emit_forward_decl(struct emit_ctx *ctx, __u32 id);
 int emit_soft_deps(struct emit_ctx *ctx, __u32 id);
 int emit_record_definition(struct emit_ctx *ctx, __u32 id);
@@ -171,8 +174,8 @@ static int test_private_record_body_failure_paths(void) {
   record.type.size = 4;
   record.member.type = invalid_id;
 
-  REQUIRE(emit_record_body(&fixture.ctx, &record.type) != 0);
-  REQUIRE(emit_inline_record(&fixture.ctx, &record.type, "bad") != 0);
+  REQUIRE(emit_record_body(&fixture.ctx, 0, &record.type) != 0);
+  REQUIRE(emit_inline_record(&fixture.ctx, &record.type, 0, "bad") != 0);
 
   private_fixture_destroy(&fixture);
   return 0;

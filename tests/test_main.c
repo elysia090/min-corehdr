@@ -12,6 +12,7 @@
 #include "min_corehdr/btf_index.h"
 #include "min_corehdr/btf_loader.h"
 #include "min_corehdr/closure.h"
+#include "min_corehdr/emitter.h"
 #include "min_corehdr/error.h"
 #include "min_corehdr/seeds.h"
 #include "min_corehdr/type_set.h"
@@ -113,15 +114,15 @@ static int test_extract_object_seeds(const struct mch_btf_index *base_index,
   return 0;
 }
 
-static int test_extract_core_relo_seeds(const struct mch_btf_index *base_index,
-                                        const struct btf *object_btf,
-                                        const struct btf_ext *object_ext, const char *object_path,
-                                        struct mch_type_set *seeds, struct mch_seed_stats *stats,
-                                        struct mch_error *err) {
+static int test_extract_core_relo_seeds_with_members(
+    const struct mch_btf_index *base_index, const struct btf *object_btf,
+    const struct btf_ext *object_ext, const char *object_path, struct mch_type_set *seeds,
+    struct mch_member_filter *members, struct mch_seed_stats *stats, struct mch_error *err) {
   (void)base_index;
   (void)object_btf;
   (void)object_ext;
   (void)seeds;
+  (void)members;
   if (mode == STUB_CORE_SEEDS_FAIL) {
     set_stub_error(err, "stub CO-RE seeds failed", object_path);
     return -1;
@@ -145,10 +146,13 @@ static int test_compute_dependency_closure(const struct btf *btf, struct mch_typ
   return 0;
 }
 
-static int test_emit_header(FILE *out, const struct btf *btf, const struct mch_type_set *required,
-                            struct mch_error *err) {
+static int test_emit_header_with_options(FILE *out, const struct btf *btf,
+                                         const struct mch_type_set *required,
+                                         const struct mch_emit_options *options,
+                                         struct mch_error *err) {
   (void)btf;
   (void)required;
+  (void)options;
   if (mode == STUB_EMIT_FAIL) {
     mch_error_set(err, "stub emit failed");
     return -1;
@@ -178,17 +182,17 @@ static int test_fclose(FILE *out) {
 #define mch_btf_index_init test_btf_index_init
 #define mch_type_set_init test_type_set_init
 #define mch_extract_object_seeds test_extract_object_seeds
-#define mch_extract_core_relo_seeds test_extract_core_relo_seeds
+#define mch_extract_core_relo_seeds_with_members test_extract_core_relo_seeds_with_members
 #define mch_compute_dependency_closure_with_options test_compute_dependency_closure
-#define mch_emit_header test_emit_header
+#define mch_emit_header_with_options test_emit_header_with_options
 #define fdopen test_fdopen
 #define fclose test_fclose
 #include "../src/main.c"
 #undef fclose
 #undef fdopen
-#undef mch_emit_header
+#undef mch_emit_header_with_options
 #undef mch_compute_dependency_closure_with_options
-#undef mch_extract_core_relo_seeds
+#undef mch_extract_core_relo_seeds_with_members
 #undef mch_extract_object_seeds
 #undef mch_type_set_init
 #undef mch_btf_index_init

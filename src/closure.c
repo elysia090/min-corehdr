@@ -83,7 +83,7 @@ MCH_PRIVATE int add_dep(const struct btf *btf, struct mch_type_set *required, __
   return 0;
 }
 
-MCH_PRIVATE int add_type_deps(const struct btf *btf, const struct btf_type *type,
+MCH_PRIVATE int add_type_deps(const struct btf *btf, __u32 type_id, const struct btf_type *type,
                               struct mch_type_set *required, struct mch_closure_stats *stats,
                               struct closure_worklist *worklist,
                               const struct mch_closure_options *options, struct mch_error *err) {
@@ -118,6 +118,11 @@ MCH_PRIVATE int add_type_deps(const struct btf *btf, const struct btf_type *type
     const struct btf_member *members = btf_members(type);
     __u16 vlen = btf_vlen(type);
     for (__u16 i = 0; i < vlen; i++) {
+      if (options != NULL && options->member_filter != NULL &&
+          mch_member_filter_has_record(options->member_filter, type_id) &&
+          !mch_member_filter_contains(options->member_filter, type_id, i)) {
+        continue;
+      }
       if (add_dep(btf, required, members[i].type, worklist, stats, err) != 0) {
         return -1;
       }
@@ -199,7 +204,7 @@ int mch_compute_dependency_closure_with_options(const struct btf *btf,
       worklist_destroy(&worklist);
       return -1;
     }
-    if (add_type_deps(btf, type, required, stats, &worklist, options, err) != 0) {
+    if (add_type_deps(btf, current, type, required, stats, &worklist, options, err) != 0) {
       worklist_destroy(&worklist);
       return -1;
     }

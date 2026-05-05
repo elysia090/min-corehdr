@@ -34,9 +34,10 @@ int worklist_push(struct closure_worklist *worklist, __u32 id, struct mch_error 
 int add_dep(const struct btf *btf, struct mch_type_set *required, __u32 id,
             struct closure_worklist *worklist, struct mch_closure_stats *stats,
             struct mch_error *err);
-int add_type_deps(const struct btf *btf, const struct btf_type *type, struct mch_type_set *required,
-                  struct mch_closure_stats *stats, struct closure_worklist *worklist,
-                  const struct mch_closure_options *options, struct mch_error *err);
+int add_type_deps(const struct btf *btf, __u32 type_id, const struct btf_type *type,
+                  struct mch_type_set *required, struct mch_closure_stats *stats,
+                  struct closure_worklist *worklist, const struct mch_closure_options *options,
+                  struct mch_error *err);
 
 static int test_worklist_overflow_guard(void) {
   struct closure_worklist worklist = {.len = SIZE_MAX / 2 + 1, .cap = SIZE_MAX / 2 + 1};
@@ -107,19 +108,19 @@ static int test_synthetic_type_dependency_failures(void) {
   array_type.array.type = (__u32)int_id;
   array_type.array.index_type = 127;
   mch_error_clear(&err);
-  REQUIRE(add_type_deps(btf, &array_type.type, &required, &stats, &worklist, NULL, &err) != 0);
+  REQUIRE(add_type_deps(btf, 0, &array_type.type, &required, &stats, &worklist, NULL, &err) != 0);
 
   memset(&proto_type, 0, sizeof(proto_type));
   proto_type.type.info = BTF_INFO_ENC(BTF_KIND_FUNC_PROTO, 0, 0);
   proto_type.type.type = 127;
   mch_error_clear(&err);
-  REQUIRE(add_type_deps(btf, &proto_type.type, &required, &stats, &worklist, NULL, &err) != 0);
+  REQUIRE(add_type_deps(btf, 0, &proto_type.type, &required, &stats, &worklist, NULL, &err) != 0);
 
   memset(&datasec_type, 0, sizeof(datasec_type));
   datasec_type.type.info = BTF_INFO_ENC(BTF_KIND_DATASEC, 0, 1);
   datasec_type.info.type = 127;
   mch_error_clear(&err);
-  REQUIRE(add_type_deps(btf, &datasec_type.type, &required, &stats, &worklist, NULL, &err) != 0);
+  REQUIRE(add_type_deps(btf, 0, &datasec_type.type, &required, &stats, &worklist, NULL, &err) != 0);
 
   mch_type_set_destroy(&required);
   btf__free(btf);

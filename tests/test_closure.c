@@ -220,6 +220,55 @@ static int test_dependency_closure_can_expand_pointers(void) {
   return 0;
 }
 
+static int test_dependency_closure_can_prune_record_members(void) {
+  struct mch_type_set required;
+  struct mch_member_filter members;
+  struct mch_closure_stats stats;
+  struct mch_error err;
+  struct mch_closure_options options = {0};
+  struct btf *btf;
+  int int_id;
+  int used_id;
+  int unused_id;
+  int root_id;
+
+  mch_error_clear(&err);
+  mch_closure_stats_init(&stats);
+  memset(&members, 0, sizeof(members));
+
+  btf = btf__new_empty();
+  REQUIRE(libbpf_get_error(btf) == 0);
+
+  int_id = btf__add_int(btf, "int", 4, BTF_INT_SIGNED);
+  REQUIRE(int_id > 0);
+  used_id = btf__add_struct(btf, "used_leaf", 4);
+  REQUIRE(used_id > 0);
+  REQUIRE(btf__add_field(btf, "value", int_id, 0, 0) == 0);
+  unused_id = btf__add_struct(btf, "unused_leaf", 4);
+  REQUIRE(unused_id > 0);
+  REQUIRE(btf__add_field(btf, "value", int_id, 0, 0) == 0);
+  root_id = btf__add_struct(btf, "member_root", 8);
+  REQUIRE(root_id > 0);
+  REQUIRE(btf__add_field(btf, "used", used_id, 0, 0) == 0);
+  REQUIRE(btf__add_field(btf, "unused", unused_id, 32, 0) == 0);
+
+  REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
+  REQUIRE(mch_member_filter_init(&members, btf__type_cnt(btf)) == 0);
+  REQUIRE(mch_member_filter_add(btf, &members, (size_t)root_id, 0, &err) == 0);
+  options.member_filter = &members;
+  REQUIRE(mch_type_set_add(&required, (size_t)root_id));
+  REQUIRE(mch_compute_dependency_closure_with_options(btf, &required, &stats, &options, &err) == 0);
+
+  REQUIRE(mch_type_set_contains(&required, (size_t)root_id));
+  REQUIRE(mch_type_set_contains(&required, (size_t)used_id));
+  REQUIRE(!mch_type_set_contains(&required, (size_t)unused_id));
+
+  mch_member_filter_destroy(&members);
+  mch_type_set_destroy(&required);
+  btf__free(btf);
+  return 0;
+}
+
 #if defined(__linux__)
 static int test_dependency_closure_allocation_failures(void) {
   struct mch_type_set required;
@@ -354,6 +403,7 @@ int main(void) {
   REQUIRE(test_dependency_closure_special_roots() == 0);
   REQUIRE(test_dependency_closure_grows_worklist() == 0);
   REQUIRE(test_dependency_closure_can_expand_pointers() == 0);
+  REQUIRE(test_dependency_closure_can_prune_record_members() == 0);
 #if defined(__linux__)
   REQUIRE(test_dependency_closure_allocation_failures() == 0);
 #endif

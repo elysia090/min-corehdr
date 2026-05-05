@@ -86,6 +86,7 @@ Implemented now:
 - O(1)-average base BTF exact name/kind lookup through a compact index
 - object-local BTF seed extraction with v0.1 exact name/kind resolution and local typedef-chain unwrapping
 - CO-RE relocation root extraction from `.BTF.ext`
+- CO-RE field relocation-driven record member pruning, including target anonymous record descent
 - source-aware failure diagnostics from `.BTF.ext` function and line metadata, including the
   object-BTF type, base-BTF lookup, and CO-RE relocation ordinal when available
 - worklist-based conservative dependency closure over base BTF
