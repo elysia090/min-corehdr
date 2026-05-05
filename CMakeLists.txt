@@ -37,6 +37,7 @@ set(MIN_COREHDR_HEADERS
   include/min_corehdr/closure.h
   include/min_corehdr/emitter.h
   include/min_corehdr/error.h
+  include/min_corehdr/member_filter.h
   include/min_corehdr/seeds.h
   include/min_corehdr/type_set.h
 )
@@ -48,6 +49,7 @@ set(MIN_COREHDR_LIB_SOURCES
   src/closure.c
   src/emitter.c
   src/error.c
+  src/member_filter.c
   src/seeds.c
   src/type_set.c
 )
@@ -151,6 +153,7 @@ if(BUILD_TESTING)
     src/btf_index.c
     src/btf_loader.c
     src/error.c
+    src/member_filter.c
     src/type_set.c
   )
   target_include_directories(test-seeds-private PRIVATE include)
@@ -167,6 +170,7 @@ if(BUILD_TESTING)
     tests/test_closure_private.c
     $<TARGET_OBJECTS:test-closure-private-closure>
     src/error.c
+    src/member_filter.c
     src/type_set.c
   )
   target_include_directories(test-closure-private PRIVATE include)
@@ -184,6 +188,7 @@ if(BUILD_TESTING)
     $<TARGET_OBJECTS:test-emitter-private-emitter>
     src/btf_loader.c
     src/error.c
+    src/member_filter.c
     src/type_set.c
   )
   target_include_directories(test-emitter-private PRIVATE include)

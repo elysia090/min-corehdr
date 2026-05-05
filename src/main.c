@@ -57,7 +57,9 @@ static FILE *open_temp_output(const char *path, char *tmp_path, size_t tmp_path_
 }
 
 static int write_header_to_path(const char *path, const struct btf *btf,
-                                const struct mch_type_set *required, struct mch_error *err) {
+                                const struct mch_type_set *required,
+                                const struct mch_emit_options *emit_options,
+                                struct mch_error *err) {
   char tmp_path[1024];
   FILE *out;
   int rc;
@@ -67,7 +69,7 @@ static int write_header_to_path(const char *path, const struct btf *btf,
     return -1;
   }
 
-  rc = mch_emit_header(out, btf, required, err);
+  rc = mch_emit_header_with_options(out, btf, required, emit_options, err);
   if (fclose(out) != 0 && rc == 0) {
     mch_error_set(err, "failed to close output: %s", strerror(errno));
     mch_error_set_file(err, path);
@@ -93,9 +95,11 @@ int main(int argc, char **argv) {
   struct mch_btf_doc base;
   struct mch_btf_index base_index;
   struct mch_type_set required;
+  struct mch_member_filter member_filter;
   struct mch_seed_stats seed_total;
   struct mch_closure_stats closure_stats;
   struct mch_closure_options closure_options;
+  struct mch_emit_options emit_options;
   int rc = 1;
 
   mch_error_clear(&err);
@@ -103,9 +107,11 @@ int main(int argc, char **argv) {
   mch_btf_doc_init(&base);
   mch_btf_index_init_empty(&base_index);
   memset(&required, 0, sizeof(required));
+  memset(&member_filter, 0, sizeof(member_filter));
   mch_seed_stats_init(&seed_total);
   mch_closure_stats_init(&closure_stats);
   closure_options = (struct mch_closure_options){0};
+  emit_options = (struct mch_emit_options){0};
 
   if (mch_cli_parse(argc, argv, &opts, &err) != 0) {
     mch_error_print(stderr, &err);
@@ -138,6 +144,12 @@ int main(int argc, char **argv) {
     mch_error_set(&err, "out of memory while preparing required type set");
     goto out;
   }
+  if (mch_member_filter_init(&member_filter, btf__type_cnt(base.btf)) != 0) {
+    mch_error_set(&err, "out of memory while preparing required member set");
+    goto out;
+  }
+  closure_options.member_filter = &member_filter;
+  emit_options.member_filter = &member_filter;
 
   for (size_t i = 0; i < opts.object_count; i++) {
     struct mch_btf_doc object;
@@ -158,8 +170,9 @@ int main(int argc, char **argv) {
       mch_btf_doc_destroy(&object);
       goto out;
     }
-    if (mch_extract_core_relo_seeds(&base_index, object.btf, object.ext, opts.objects[i], &required,
-                                    &stats, &err) != 0) {
+    if (mch_extract_core_relo_seeds_with_members(&base_index, object.btf, object.ext,
+                                                 opts.objects[i], &required, &member_filter, &stats,
+                                                 &err) != 0) {
       mch_btf_doc_destroy(&object);
       goto out;
     }
@@ -190,10 +203,10 @@ int main(int argc, char **argv) {
   }
 
   if (opts.output_path != NULL) {
-    if (write_header_to_path(opts.output_path, base.btf, &required, &err) != 0) {
+    if (write_header_to_path(opts.output_path, base.btf, &required, &emit_options, &err) != 0) {
       goto out;
     }
-  } else if (mch_emit_header(stdout, base.btf, &required, &err) != 0) {
+  } else if (mch_emit_header_with_options(stdout, base.btf, &required, &emit_options, &err) != 0) {
     goto out;
   }
 
@@ -214,6 +227,7 @@ out:
   if (rc != 0) {
     mch_error_print(stderr, &err);
   }
+  mch_member_filter_destroy(&member_filter);
   mch_type_set_destroy(&required);
   mch_btf_index_destroy(&base_index);
   mch_btf_doc_destroy(&base);

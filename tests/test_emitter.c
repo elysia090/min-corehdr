@@ -50,8 +50,8 @@ void *__wrap_malloc(size_t size) {
 }
 #endif
 
-static int emit_to_string(const struct btf *btf, const struct mch_type_set *required,
-                          char **result) {
+static int emit_to_string_with_options(const struct btf *btf, const struct mch_type_set *required,
+                                       const struct mch_emit_options *options, char **result) {
   struct mch_error err;
   FILE *out;
   long size;
@@ -60,7 +60,7 @@ static int emit_to_string(const struct btf *btf, const struct mch_type_set *requ
   mch_error_clear(&err);
   out = tmpfile();
   REQUIRE(out != NULL);
-  REQUIRE(mch_emit_header(out, btf, required, &err) == 0);
+  REQUIRE(mch_emit_header_with_options(out, btf, required, options, &err) == 0);
   REQUIRE(fflush(out) == 0);
   REQUIRE(fseek(out, 0, SEEK_END) == 0);
   size = ftell(out);
@@ -75,6 +75,11 @@ static int emit_to_string(const struct btf *btf, const struct mch_type_set *requ
 
   *result = buffer;
   return 0;
+}
+
+static int emit_to_string(const struct btf *btf, const struct mch_type_set *required,
+                          char **result) {
+  return emit_to_string_with_options(btf, required, NULL, result);
 }
 
 static int test_emitter_output_and_determinism(void) {
@@ -362,6 +367,52 @@ static int test_typedef_function_pointer_forward_decl(void) {
   return 0;
 }
 
+static int test_emitter_prunes_selected_record_members(void) {
+  struct mch_type_set required;
+  struct mch_member_filter members;
+  struct mch_closure_stats stats;
+  struct mch_error err;
+  struct mch_closure_options closure_options = {0};
+  struct mch_emit_options emit_options = {0};
+  struct btf *btf;
+  char *header = NULL;
+  int int_id;
+  int root_id;
+
+  mch_error_clear(&err);
+  mch_closure_stats_init(&stats);
+  memset(&members, 0, sizeof(members));
+
+  btf = btf__new_empty();
+  REQUIRE(libbpf_get_error(btf) == 0);
+  int_id = btf__add_int(btf, "int", 4, BTF_INT_SIGNED);
+  REQUIRE(int_id > 0);
+  root_id = btf__add_struct(btf, "task_struct", 8);
+  REQUIRE(root_id > 0);
+  REQUIRE(btf__add_field(btf, "pid", int_id, 0, 0) == 0);
+  REQUIRE(btf__add_field(btf, "unused", int_id, 32, 0) == 0);
+
+  REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
+  REQUIRE(mch_member_filter_init(&members, btf__type_cnt(btf)) == 0);
+  REQUIRE(mch_member_filter_add(btf, &members, (size_t)root_id, 0, &err) == 0);
+  closure_options.member_filter = &members;
+  emit_options.member_filter = &members;
+  REQUIRE(mch_type_set_add(&required, (size_t)root_id));
+  REQUIRE(mch_compute_dependency_closure_with_options(btf, &required, &stats, &closure_options,
+                                                      &err) == 0);
+  REQUIRE(emit_to_string_with_options(btf, &required, &emit_options, &header) == 0);
+
+  REQUIRE(strstr(header, "struct task_struct {") != NULL);
+  REQUIRE(strstr(header, "int pid;") != NULL);
+  REQUIRE(strstr(header, "unused") == NULL);
+
+  free(header);
+  mch_member_filter_destroy(&members);
+  mch_type_set_destroy(&required);
+  btf__free(btf);
+  return 0;
+}
+
 static int test_edge_declarators_and_recursive_records(void) {
   struct mch_type_set required;
   struct mch_closure_stats stats;
@@ -624,6 +675,7 @@ int main(void) {
   REQUIRE(test_emitter_output_and_determinism() == 0);
   REQUIRE(test_empty_required_output() == 0);
   REQUIRE(test_typedef_function_pointer_forward_decl() == 0);
+  REQUIRE(test_emitter_prunes_selected_record_members() == 0);
   REQUIRE(test_edge_declarators_and_recursive_records() == 0);
   REQUIRE(test_declarator_limit_failures() == 0);
 #if defined(__linux__)
