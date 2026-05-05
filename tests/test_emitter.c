@@ -369,7 +369,7 @@ static int test_typedef_function_pointer_forward_decl(void) {
 
 static int test_emitter_prunes_selected_record_members(void) {
   struct mch_type_set required;
-  struct mch_member_filter members;
+  struct mch_requirements requirements;
   struct mch_closure_stats stats;
   struct mch_error err;
   struct mch_closure_options closure_options = {0};
@@ -381,7 +381,7 @@ static int test_emitter_prunes_selected_record_members(void) {
 
   mch_error_clear(&err);
   mch_closure_stats_init(&stats);
-  memset(&members, 0, sizeof(members));
+  memset(&requirements, 0, sizeof(requirements));
 
   btf = btf__new_empty();
   REQUIRE(libbpf_get_error(btf) == 0);
@@ -393,10 +393,10 @@ static int test_emitter_prunes_selected_record_members(void) {
   REQUIRE(btf__add_field(btf, "unused", int_id, 32, 0) == 0);
 
   REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
-  REQUIRE(mch_member_filter_init(&members, btf__type_cnt(btf)) == 0);
-  REQUIRE(mch_member_filter_add(btf, &members, (size_t)root_id, 0, &err) == 0);
-  closure_options.member_filter = &members;
-  emit_options.member_filter = &members;
+  REQUIRE(mch_requirements_init(&requirements, btf__type_cnt(btf)) == 0);
+  REQUIRE(mch_requirements_add_record_member(btf, &requirements, (size_t)root_id, 0, &err) == 0);
+  closure_options.requirements = &requirements;
+  emit_options.requirements = &requirements;
   REQUIRE(mch_type_set_add(&required, (size_t)root_id));
   REQUIRE(mch_compute_dependency_closure_with_options(btf, &required, &stats, &closure_options,
                                                       &err) == 0);
@@ -407,7 +407,7 @@ static int test_emitter_prunes_selected_record_members(void) {
   REQUIRE(strstr(header, "unused") == NULL);
 
   free(header);
-  mch_member_filter_destroy(&members);
+  mch_requirements_destroy(&requirements);
   mch_type_set_destroy(&required);
   btf__free(btf);
   return 0;

@@ -118,9 +118,9 @@ MCH_PRIVATE int add_type_deps(const struct btf *btf, __u32 type_id, const struct
     const struct btf_member *members = btf_members(type);
     __u16 vlen = btf_vlen(type);
     for (__u16 i = 0; i < vlen; i++) {
-      if (options != NULL && options->member_filter != NULL &&
-          mch_member_filter_has_record(options->member_filter, type_id) &&
-          !mch_member_filter_contains(options->member_filter, type_id, i)) {
+      if (options != NULL && options->requirements != NULL &&
+          mch_requirements_has_record_members(options->requirements, type_id) &&
+          !mch_requirements_contains_record_member(options->requirements, type_id, i)) {
         continue;
       }
       if (add_dep(btf, required, members[i].type, worklist, stats, err) != 0) {
