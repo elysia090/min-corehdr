@@ -1,35 +1,29 @@
-# Minimal CO-RE Header Example
+# Practical Minimal Example
 
-This example shows the intended `min-corehdr` workflow with a small hand-written local type header
-and a practical BPF program shape: an `exec` tracepoint that writes task metadata to a ring buffer.
-It is a build-time demonstration, not a runnable loader.
+This directory is a small but realistic libbpf-style CO-RE source set. It starts with a
+hand-written `local_types.h`, builds two `.bpf.o` objects, asks `min-corehdr` to generate a smaller
+compile-complete replacement header, and recompiles both BPF sources with the generated header.
 
-From the repository root:
+The example intentionally covers common maintenance pressure points:
+
+- multiple BPF objects sharing one local type header
+- object-BTF roots such as `task_struct`, `cred`, `mm_struct`, typedefs, and `pid_type`
+- CO-RE field relocations over nested pointers and anonymous target records
+- by-value local event structs that must not leak into the generated kernel header
+- `--explain` witness output that shows why roots and record members were required
+
+Run it from a configured checkout:
 
 ```sh
-nix develop
-cmake --preset dev
 cmake --build --preset dev
-tmpdir=$(mktemp -d)
-cp examples/minimal/exec_audit.bpf.c examples/minimal/local_types.h "$tmpdir/"
-real_clang=$(clang -print-prog-name=clang)
-bpf_cflags="-target bpf -g -O2 -Wall -Wextra -Werror"
-"$real_clang" $bpf_cflags -I"$tmpdir" -c "$tmpdir/exec_audit.bpf.c" \
-  -o "$tmpdir/exec_audit.bpf.o"
-build/dev/min-corehdr --btf /sys/kernel/btf/vmlinux --stats \
-  -o "$tmpdir/generated_local_types.h" "$tmpdir/exec_audit.bpf.o"
-cp "$tmpdir/generated_local_types.h" "$tmpdir/local_types.h"
-"$real_clang" $bpf_cflags -I"$tmpdir" -c "$tmpdir/exec_audit.bpf.c" \
-  -o "$tmpdir/exec_audit.recompiled.bpf.o"
+sh examples/minimal/build.sh build/dev/min-corehdr
 ```
 
-The source intentionally exercises the SPEC's compile-completeness surface:
+Useful outputs are written under `examples/minimal/build/` by default:
 
-- `task_struct->pid`, `task_struct->tgid`, `task_struct->comm`, and nested cred access
-- pointer target access through `mm_struct` for argument bounds
-- `sizeof(struct task_struct)` and by-value `struct list_head` assignment
-- enum usage and an enum data anchor
-- typedef chains resolving back to `struct task_struct`
-- by-value embedded kernel structs, a union member, an anonymous nested record, and a flexible array
+- `original/*.bpf.o`: objects built against the hand-written header
+- `generated/local_types.h`: generated replacement header
+- `min-corehdr.stderr.txt`: requirement witness and stats
+- `recompiled/*.bpf.o`: objects rebuilt against the generated header
 
-The generated header is expected to replace `local_types.h` for recompilation.
+Use `MIN_COREHDR_EXAMPLE_OUT=/tmp/min-corehdr-example` to write artifacts outside the source tree.

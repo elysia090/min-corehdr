@@ -1,22 +1,10 @@
+#include "bpf_helpers.h"
 #include "local_types.h"
-
-#define SEC(name) __attribute__((section(name), used))
-#define __uint(name, value) int (*name)[value]
-
-#define BPF_MAP_TYPE_RINGBUF 27
 
 struct {
   __uint(type, BPF_MAP_TYPE_RINGBUF);
   __uint(max_entries, 1 << 24);
 } events SEC(".maps");
-
-static void *(*bpf_ringbuf_reserve)(void *ringbuf, unsigned long size,
-                                    unsigned long flags) = (void *)131;
-static void (*bpf_ringbuf_submit)(void *data, unsigned long flags) = (void *)132;
-static unsigned long long (*bpf_get_current_pid_tgid)(void) = (void *)14;
-static void *(*bpf_get_current_task_btf)(void) = (void *)158;
-static long (*bpf_probe_read_kernel_str)(void *dst, unsigned int size,
-                                         const void *unsafe_ptr) = (void *)115;
 
 typedef struct task_struct task_alias;
 typedef task_alias task_alias2;

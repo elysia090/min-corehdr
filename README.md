@@ -53,13 +53,13 @@ smoke gates on GitHub Actions.
 ## Try the Minimal Example
 
 For a first end-to-end run, use `examples/minimal`. It contains a small hand-written CO-RE
-`local_types.h` plus an `exec` tracepoint/ringbuf BPF source that exercises field access,
-`sizeof`, enum usage, typedef chains, by-value embedded structs/unions, an anonymous nested
-record, and generated-header recompilation.
+`local_types.h`, shared helper shims, and two ringbuf-based tracepoint BPF programs. The workflow
+builds both objects, generates one replacement local type header with `--explain --stats`, and then
+recompiles both programs against that generated header.
 
 ```sh
 cmake --build --preset dev
-sh tests/example_smoke.sh build/dev/min-corehdr
+sh examples/minimal/build.sh build/dev/min-corehdr
 ```
 
 The same example is wired into CTest as `example-smoke`; it skips automatically when the local
