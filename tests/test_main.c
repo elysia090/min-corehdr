@@ -35,6 +35,7 @@ enum stub_mode {
   STUB_CORE_SEEDS_FAIL,
   STUB_CLOSURE_FAIL,
   STUB_EMIT_FAIL,
+  STUB_EXPLAIN_FAIL,
   STUB_FDOPEN_FAIL,
   STUB_FCLOSE_FAIL,
 };
@@ -98,13 +99,14 @@ static int test_type_set_init(struct mch_type_set *set, size_t count) {
   return mch_type_set_init(set, count);
 }
 
-static int test_extract_object_seeds(const struct mch_btf_index *base_index,
-                                     const struct btf *object_btf, const char *object_path,
-                                     struct mch_type_set *seeds, struct mch_seed_stats *stats,
-                                     struct mch_error *err) {
+static int test_extract_object_seeds_with_requirements(
+    const struct mch_btf_index *base_index, const struct btf *object_btf, const char *object_path,
+    struct mch_type_set *seeds, struct mch_requirements *requirements, struct mch_seed_stats *stats,
+    struct mch_error *err) {
   (void)base_index;
   (void)object_btf;
   (void)seeds;
+  (void)requirements;
   if (mode == STUB_OBJECT_SEEDS_FAIL) {
     set_stub_error(err, "stub object seeds failed", object_path);
     return -1;
@@ -160,6 +162,18 @@ static int test_emit_header_with_options(FILE *out, const struct btf *btf,
   return fputs("/* stub header */\n", out) < 0 ? -1 : 0;
 }
 
+static int test_requirements_write_explanation(FILE *out, const struct btf *btf,
+                                               const struct mch_requirements *requirements,
+                                               struct mch_error *err) {
+  (void)btf;
+  (void)requirements;
+  if (mode == STUB_EXPLAIN_FAIL) {
+    mch_error_set(err, "stub explain failed");
+    return -1;
+  }
+  return fputs("requirements:\n", out) < 0 ? -1 : 0;
+}
+
 static FILE *test_fdopen(int fd, const char *open_mode) {
   if (mode == STUB_FDOPEN_FAIL) {
     errno = EMFILE;
@@ -181,19 +195,21 @@ static int test_fclose(FILE *out) {
 #define mch_load_object_btf test_load_object_btf
 #define mch_btf_index_init test_btf_index_init
 #define mch_type_set_init test_type_set_init
-#define mch_extract_object_seeds test_extract_object_seeds
+#define mch_extract_object_seeds_with_requirements test_extract_object_seeds_with_requirements
 #define mch_extract_core_relo_seeds_with_requirements test_extract_core_relo_seeds_with_requirements
 #define mch_compute_dependency_closure_with_options test_compute_dependency_closure
 #define mch_emit_header_with_options test_emit_header_with_options
+#define mch_requirements_write_explanation test_requirements_write_explanation
 #define fdopen test_fdopen
 #define fclose test_fclose
 #include "../src/main.c"
 #undef fclose
 #undef fdopen
+#undef mch_requirements_write_explanation
 #undef mch_emit_header_with_options
 #undef mch_compute_dependency_closure_with_options
 #undef mch_extract_core_relo_seeds_with_requirements
-#undef mch_extract_object_seeds
+#undef mch_extract_object_seeds_with_requirements
 #undef mch_type_set_init
 #undef mch_btf_index_init
 #undef mch_load_object_btf
@@ -285,10 +301,19 @@ static int test_main_expand_pointers_success(void) {
   return 0;
 }
 
+static int test_main_explain_success(void) {
+  char *args[] = {"min-corehdr", "--explain", "--btf", "base.btf", "object.o", NULL};
+
+  REQUIRE(run_main(STUB_OK, 5, args, 0) == 0);
+  REQUIRE(run_main(STUB_EXPLAIN_FAIL, 5, args, 1) == 0);
+  return 0;
+}
+
 int main(void) {
   REQUIRE(test_main_stubbed_failures() == 0);
   REQUIRE(test_main_stubbed_output_failures() == 0);
   REQUIRE(test_main_quiet_verbose_success() == 0);
   REQUIRE(test_main_expand_pointers_success() == 0);
+  REQUIRE(test_main_explain_success() == 0);
   return 0;
 }

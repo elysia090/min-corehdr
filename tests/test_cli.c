@@ -160,11 +160,12 @@ int main(void) {
   }
 
   {
-    char *argv[] = {"min-corehdr", "--expand-pointers", "--output=out.h",
+    char *argv[] = {"min-corehdr", "--expand-pointers", "--explain", "--output=out.h",
                     "--btf",       "base.btf",          "foo.bpf.o"};
     struct mch_cli_options opts;
-    REQUIRE(parse_ok(6, argv, &opts) == 0);
+    REQUIRE(parse_ok(7, argv, &opts) == 0);
     REQUIRE(opts.expand_pointers);
+    REQUIRE(opts.explain);
     REQUIRE(strcmp(opts.output_path, "out.h") == 0);
     mch_cli_options_destroy(&opts);
   }

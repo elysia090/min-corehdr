@@ -67,6 +67,7 @@ set(MIN_COREHDR_FORMAT_FILES
   tests/test_emitter_private.c
   tests/test_error.c
   tests/test_main.c
+  tests/test_requirements.c
   tests/test_btf_index.c
   tests/test_btf_loader.c
   tests/test_seeds.c
@@ -143,6 +144,9 @@ if(BUILD_TESTING)
   add_executable(test-seeds tests/test_seeds.c)
   target_link_libraries(test-seeds PRIVATE min-corehdr-core)
 
+  add_executable(test-requirements tests/test_requirements.c)
+  target_link_libraries(test-requirements PRIVATE min-corehdr-core)
+
   add_library(test-seeds-private-seeds OBJECT src/seeds.c)
   target_compile_definitions(test-seeds-private-seeds PRIVATE MCH_PRIVATE=)
   target_include_directories(test-seeds-private-seeds PRIVATE include)
@@ -169,6 +173,7 @@ if(BUILD_TESTING)
   add_executable(test-closure-private
     tests/test_closure_private.c
     $<TARGET_OBJECTS:test-closure-private-closure>
+    src/btf_loader.c
     src/error.c
     src/requirements.c
     src/type_set.c
@@ -222,6 +227,7 @@ if(BUILD_TESTING)
   add_test(NAME btf-index COMMAND test-btf-index)
   add_test(NAME btf-loader COMMAND test-btf-loader)
   add_test(NAME seeds COMMAND test-seeds)
+  add_test(NAME requirements COMMAND test-requirements)
   add_test(NAME seeds-private COMMAND test-seeds-private)
   add_test(NAME closure COMMAND test-closure)
   add_test(NAME closure-private COMMAND test-closure-private)

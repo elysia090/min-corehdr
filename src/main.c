@@ -165,8 +165,8 @@ int main(int argc, char **argv) {
       mch_btf_doc_destroy(&object);
       goto out;
     }
-    if (mch_extract_object_seeds(&base_index, object.btf, opts.objects[i], &required, &stats,
-                                 &err) != 0) {
+    if (mch_extract_object_seeds_with_requirements(&base_index, object.btf, opts.objects[i],
+                                                   &required, &requirements, &stats, &err) != 0) {
       mch_btf_doc_destroy(&object);
       goto out;
     }
@@ -210,13 +210,24 @@ int main(int argc, char **argv) {
     goto out;
   }
 
+  if (opts.explain &&
+      mch_requirements_write_explanation(stderr, base.btf, &requirements, &err) != 0) {
+    goto out;
+  }
+
   if (opts.stats) {
+    struct mch_requirement_stats requirement_stats;
+
+    mch_requirements_stats(&requirements, &requirement_stats);
     fprintf(stderr, "objects: %zu\n", opts.object_count);
     fprintf(stderr, "seed candidates: %zu\n", seed_total.candidates);
     fprintf(stderr, "kernel seed types: %zu\n", seed_total.kernel_types);
     fprintf(stderr, "program-local candidates: %zu\n", seed_total.program_local_types);
     fprintf(stderr, "CO-RE relocations: %zu\n", seed_total.core_relocations);
     fprintf(stderr, "CO-RE root types: %zu\n", seed_total.core_kernel_types);
+    fprintf(stderr, "requirement root types: %zu\n", requirement_stats.type_roots);
+    fprintf(stderr, "required record members: %zu\n", requirement_stats.record_members);
+    fprintf(stderr, "requirement traces: %zu\n", requirement_stats.traces);
     fprintf(stderr, "emitted required types: %zu\n", required.selected);
     fprintf(stderr, "closure additions: %zu\n", closure_stats.added_types);
   }

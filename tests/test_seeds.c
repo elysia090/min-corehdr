@@ -150,7 +150,9 @@ static int test_local_vs_kernel(void) {
   struct mch_btf_index index;
   struct mch_error err;
   struct mch_type_set seeds;
+  struct mch_requirements requirements;
   struct mch_seed_stats stats;
+  struct mch_requirement_stats requirement_stats;
   struct btf *base;
   struct btf *object;
   int base_task;
@@ -165,6 +167,7 @@ static int test_local_vs_kernel(void) {
   mch_error_clear(&err);
   mch_btf_index_init_empty(&index);
   mch_seed_stats_init(&stats);
+  memset(&requirements, 0, sizeof(requirements));
 
   base = btf__new_empty();
   object = btf__new_empty();
@@ -194,7 +197,9 @@ static int test_local_vs_kernel(void) {
 
   REQUIRE(mch_btf_index_init(&index, base, &err) == 0);
   REQUIRE(mch_type_set_init(&seeds, btf__type_cnt(base)) == 0);
-  REQUIRE(mch_extract_object_seeds(&index, object, "fixture.bpf.o", &seeds, &stats, &err) == 0);
+  REQUIRE(mch_requirements_init(&requirements, btf__type_cnt(base)) == 0);
+  REQUIRE(mch_extract_object_seeds_with_requirements(&index, object, "fixture.bpf.o", &seeds,
+                                                     &requirements, &stats, &err) == 0);
   REQUIRE(mch_extract_core_relo_seeds(&index, object, NULL, "fixture.bpf.o", &seeds, &stats,
                                       &err) == 0);
 
@@ -204,7 +209,12 @@ static int test_local_vs_kernel(void) {
   REQUIRE(mch_type_set_contains(&seeds, (size_t)base_task));
   REQUIRE(mch_type_set_contains(&seeds, (size_t)base_enum));
   REQUIRE(seeds.selected == 2);
+  mch_requirements_stats(&requirements, &requirement_stats);
+  REQUIRE(requirement_stats.type_roots == 2);
+  REQUIRE(requirement_stats.record_members == 0);
+  REQUIRE(requirement_stats.traces == 2);
 
+  mch_requirements_destroy(&requirements);
   mch_type_set_destroy(&seeds);
   mch_btf_index_destroy(&index);
   btf__free(object);
@@ -344,6 +354,7 @@ static int test_core_relo_records_required_members(void) {
   struct mch_type_set seeds;
   struct mch_requirements requirements;
   struct mch_seed_stats stats;
+  struct mch_requirement_stats requirement_stats;
   struct btf_ext *ext;
   struct btf *base;
   struct btf *object;
@@ -392,6 +403,10 @@ static int test_core_relo_records_required_members(void) {
   REQUIRE(mch_type_set_contains(&seeds, (size_t)base_task));
   REQUIRE(mch_requirements_contains_record_member(&requirements, (size_t)base_task, 0));
   REQUIRE(!mch_requirements_contains_record_member(&requirements, (size_t)base_task, 1));
+  mch_requirements_stats(&requirements, &requirement_stats);
+  REQUIRE(requirement_stats.type_roots == 1);
+  REQUIRE(requirement_stats.record_members == 1);
+  REQUIRE(requirement_stats.traces == 2);
 
   mch_requirements_destroy(&requirements);
   btf_ext__free(ext);

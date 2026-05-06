@@ -254,7 +254,8 @@ static int test_dependency_closure_can_prune_record_members(void) {
 
   REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
   REQUIRE(mch_requirements_init(&requirements, btf__type_cnt(btf)) == 0);
-  REQUIRE(mch_requirements_add_record_member(btf, &requirements, (size_t)root_id, 0, &err) == 0);
+  REQUIRE(mch_requirements_add_record_member(btf, &requirements, (size_t)root_id, 0, NULL, &err) ==
+          0);
   options.requirements = &requirements;
   REQUIRE(mch_type_set_add(&required, (size_t)root_id));
   REQUIRE(mch_compute_dependency_closure_with_options(btf, &required, &stats, &options, &err) == 0);

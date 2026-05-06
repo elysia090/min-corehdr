@@ -394,7 +394,8 @@ static int test_emitter_prunes_selected_record_members(void) {
 
   REQUIRE(mch_type_set_init(&required, btf__type_cnt(btf)) == 0);
   REQUIRE(mch_requirements_init(&requirements, btf__type_cnt(btf)) == 0);
-  REQUIRE(mch_requirements_add_record_member(btf, &requirements, (size_t)root_id, 0, &err) == 0);
+  REQUIRE(mch_requirements_add_record_member(btf, &requirements, (size_t)root_id, 0, NULL, &err) ==
+          0);
   closure_options.requirements = &requirements;
   emit_options.requirements = &requirements;
   REQUIRE(mch_type_set_add(&required, (size_t)root_id));

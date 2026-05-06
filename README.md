@@ -73,6 +73,10 @@ min-corehdr --btf /sys/kernel/btf/vmlinux -o vmlinux.h foo.bpf.o
 
 Without `-o`, the generated header is written to stdout and diagnostics stay on stderr.
 
+Use `--explain` to print a concise requirement witness to stderr after generation. It lists the
+object-BTF and CO-RE roots, required record members, relocation kind, access string, and source
+location or object path that made the generated header compile-complete.
+
 Use `--expand-pointers` when you prefer conservative compile-time coverage over the smallest
 possible header. The default keeps pointer targets as forward declarations unless they are reached
 by fields, arrays, function prototypes, variables, datasecs, or CO-RE relocation roots.
@@ -87,6 +91,7 @@ Implemented now:
 - object-local BTF seed extraction with v0.1 exact name/kind resolution and local typedef-chain unwrapping
 - CO-RE relocation root extraction from `.BTF.ext`
 - CO-RE field relocation-driven record member pruning, including target anonymous record descent
+- requirement witness output for object-BTF roots, CO-RE roots, and required record members
 - source-aware failure diagnostics from `.BTF.ext` function and line metadata, including the
   object-BTF type, base-BTF lookup, and CO-RE relocation ordinal when available
 - worklist-based conservative dependency closure over base BTF

@@ -303,6 +303,44 @@ static void set_core_relo_context(const struct btf *object_btf,
   }
 }
 
+static void format_core_relo_location(const struct btf *object_btf,
+                                      const struct mch_ext_info *func_info,
+                                      const struct mch_ext_info *line_info, __u32 sec_name_off,
+                                      const struct bpf_core_relo *relo, char *location,
+                                      size_t location_size) {
+  const char *section = btf__str_by_offset(object_btf, sec_name_off);
+  const char *function;
+  const char *file_name = NULL;
+  unsigned int line = 0;
+  unsigned int column = 0;
+
+  if (location_size == 0) {
+    return;
+  }
+  location[0] = '\0';
+
+  if (find_line_location(object_btf, line_info, sec_name_off, relo->insn_off, &file_name, &line,
+                         &column)) {
+    if (column != 0) {
+      snprintf(location, location_size, "%s:%u:%u", file_name, line, column);
+    } else {
+      snprintf(location, location_size, "%s:%u", file_name, line);
+    }
+    return;
+  }
+
+  function = find_function_name(object_btf, func_info, sec_name_off, relo->insn_off);
+  if (function != NULL) {
+    snprintf(location, location_size, "function: %s", function);
+    return;
+  }
+
+  if (section == NULL || section[0] == '\0') {
+    section = "<unknown>";
+  }
+  snprintf(location, location_size, "section: %s", section);
+}
+
 static const char *core_relo_kind_name(enum bpf_core_relo_kind kind) {
   switch (kind) {
   case BPF_CORE_FIELD_BYTE_OFFSET:
@@ -442,6 +480,7 @@ static int mark_base_member_path(const struct btf *base_btf, struct mch_type_set
                                  struct mch_requirements *requirements, __u32 record_id,
                                  const struct btf_type *record, const char *member_name,
                                  __u32 fallback_index, unsigned int depth, __u32 *member_type,
+                                 const struct mch_requirement_origin *origin,
                                  struct mch_error *err) {
   const struct btf_member *record_members = btf_members(record);
   __u32 member_index = 0;
@@ -452,8 +491,8 @@ static int mark_base_member_path(const struct btf *base_btf, struct mch_type_set
   }
 
   if (find_base_member(base_btf, record, member_name, fallback_index, &member_index) != 0) {
-    if (mch_requirements_add_record_member(base_btf, requirements, record_id, member_index, err) !=
-        0) {
+    if (mch_requirements_add_record_member(base_btf, requirements, record_id, member_index, origin,
+                                           err) != 0) {
       return -1;
     }
     mch_type_set_add(seeds, record_id);
@@ -482,12 +521,13 @@ static int mark_base_member_path(const struct btf *base_btf, struct mch_type_set
     }
 
     rc = mark_base_member_path(base_btf, seeds, requirements, nested_id, nested, member_name,
-                               UINT32_MAX, depth + 1, member_type, err);
+                               UINT32_MAX, depth + 1, member_type, origin, err);
     if (rc < 0) {
       return -1;
     }
     if (rc > 0) {
-      if (mch_requirements_add_record_member(base_btf, requirements, record_id, i, err) != 0) {
+      if (mch_requirements_add_record_member(base_btf, requirements, record_id, i, origin, err) !=
+          0) {
         return -1;
       }
       mch_type_set_add(seeds, record_id);
@@ -503,8 +543,10 @@ static int record_core_relo_requirements(const struct mch_btf_index *base_index,
                                          const struct bpf_core_relo *relo, unsigned int base_id,
                                          struct mch_type_set *seeds,
                                          struct mch_requirements *requirements,
+                                         const struct mch_requirement_origin *origin,
                                          struct mch_error *err) {
-  const char *access = btf__str_by_offset(object_btf, relo->access_str_off);
+  const char *access =
+      origin == NULL ? btf__str_by_offset(object_btf, relo->access_str_off) : origin->access;
   const char *cursor = access;
   __u32 ignored_root = 0;
   __u32 object_id = relo->type_id;
@@ -558,7 +600,7 @@ static int record_core_relo_requirements(const struct mch_btf_index *base_index,
     member_name = btf__name_by_offset(object_btf, object_members[object_member_index].name_off);
     member_match =
         mark_base_member_path(base_index->btf, seeds, requirements, current_base_id, base_record,
-                              member_name, object_member_index, 0, &base_member_type, err);
+                              member_name, object_member_index, 0, &base_member_type, origin, err);
     if (member_match < 0) {
       mch_error_set_file(err, object_path);
       return -1;
@@ -693,6 +735,16 @@ void mch_seed_stats_init(struct mch_seed_stats *stats) {
 int mch_extract_object_seeds(const struct mch_btf_index *base_index, const struct btf *object_btf,
                              const char *object_path, struct mch_type_set *seeds,
                              struct mch_seed_stats *stats, struct mch_error *err) {
+  return mch_extract_object_seeds_with_requirements(base_index, object_btf, object_path, seeds,
+                                                    NULL, stats, err);
+}
+
+int mch_extract_object_seeds_with_requirements(const struct mch_btf_index *base_index,
+                                               const struct btf *object_btf,
+                                               const char *object_path, struct mch_type_set *seeds,
+                                               struct mch_requirements *requirements,
+                                               struct mch_seed_stats *stats,
+                                               struct mch_error *err) {
   __u32 type_count = btf__type_cnt(object_btf);
 
   for (__u32 id = 1; id < type_count; id++) {
@@ -729,6 +781,17 @@ int mch_extract_object_seeds(const struct mch_btf_index *base_index, const struc
     }
 
     stats->candidates++;
+    {
+      const struct mch_requirement_origin origin = {
+          .source = MCH_REQUIREMENT_SOURCE_OBJECT_BTF,
+          .object_path = object_path,
+          .detail = "seed",
+      };
+
+      if (mch_requirements_add_type_root(requirements, base_id, &origin, err) != 0) {
+        return -1;
+      }
+    }
     if (mch_type_set_add(seeds, base_id)) {
       stats->kernel_types++;
     }
@@ -839,6 +902,9 @@ int mch_extract_core_relo_seeds_with_requirements(
       struct bpf_core_relo relo;
       unsigned int base_id = 0;
       size_t relo_index = stats->core_relocations + 1;
+      const char *access;
+      char location[160];
+      struct mch_requirement_origin origin;
       int match;
 
       if ((size_t)(end - pos) < core_info.rec_size) {
@@ -850,6 +916,16 @@ int mch_extract_core_relo_seeds_with_requirements(
       memcpy(&relo, pos, sizeof(relo));
       pos += core_info.rec_size;
       stats->core_relocations++;
+      access = btf__str_by_offset(object_btf, relo.access_str_off);
+      format_core_relo_location(object_btf, &func_info, &line_info, sec.sec_name_off, &relo,
+                                location, sizeof(location));
+      origin = (struct mch_requirement_origin){
+          .source = MCH_REQUIREMENT_SOURCE_CORE_RELO,
+          .object_path = object_path,
+          .detail = core_relo_kind_name(relo.kind),
+          .access = access,
+          .location = location,
+      };
 
       match = resolve_object_type_to_base(base_index, object_btf, relo.type_id, object_path,
                                           "CO-RE relocation", false, &base_id, err);
@@ -861,8 +937,13 @@ int mch_extract_core_relo_seeds_with_requirements(
       if (mch_type_set_add(seeds, base_id)) {
         stats->core_kernel_types++;
       }
+      if (mch_requirements_add_type_root(requirements, base_id, &origin, err) != 0) {
+        set_core_relo_context(object_btf, &func_info, &line_info, sec.sec_name_off, &relo,
+                              relo_index, i, err);
+        return -1;
+      }
       if (record_core_relo_requirements(base_index, object_btf, object_path, &relo, base_id, seeds,
-                                        requirements, err) != 0) {
+                                        requirements, &origin, err) != 0) {
         set_core_relo_context(object_btf, &func_info, &line_info, sec.sec_name_off, &relo,
                               relo_index, i, err);
         return -1;
