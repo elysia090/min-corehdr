@@ -22,7 +22,7 @@ struct emit_ctx {
   FILE *out;
   const struct btf *btf;
   const struct mch_type_set *required;
-  const struct mch_member_filter *member_filter;
+  const struct mch_requirements *requirements;
   unsigned char *record_state;
   unsigned char *fwd_state;
   unsigned char *typedef_state;
@@ -286,8 +286,8 @@ MCH_PRIVATE int emit_record_body(struct emit_ctx *ctx, __u32 id, const struct bt
     if (name == NULL) {
       name = "";
     }
-    if (mch_member_filter_has_record(ctx->member_filter, id) &&
-        !mch_member_filter_contains(ctx->member_filter, id, i)) {
+    if (mch_requirements_has_record_members(ctx->requirements, id) &&
+        !mch_requirements_contains_record_member(ctx->requirements, id, i)) {
       continue;
     }
 
@@ -565,8 +565,8 @@ MCH_PRIVATE int emit_record_definition(struct emit_ctx *ctx, __u32 id) {
   members = btf_members(type);
   vlen = btf_vlen(type);
   for (__u16 i = 0; i < vlen; i++) {
-    if (mch_member_filter_has_record(ctx->member_filter, id) &&
-        !mch_member_filter_contains(ctx->member_filter, id, i)) {
+    if (mch_requirements_has_record_members(ctx->requirements, id) &&
+        !mch_requirements_contains_record_member(ctx->requirements, id, i)) {
       continue;
     }
     if (emit_hard_deps(ctx, members[i].type) != 0) {
@@ -627,8 +627,8 @@ MCH_PRIVATE int emit_hard_deps(struct emit_ctx *ctx, __u32 id) {
     members = btf_members(type);
     vlen = btf_vlen(type);
     for (__u16 i = 0; i < vlen; i++) {
-      if (mch_member_filter_has_record(ctx->member_filter, id) &&
-          !mch_member_filter_contains(ctx->member_filter, id, i)) {
+      if (mch_requirements_has_record_members(ctx->requirements, id) &&
+          !mch_requirements_contains_record_member(ctx->requirements, id, i)) {
         continue;
       }
       if (emit_hard_deps(ctx, members[i].type) != 0) {
@@ -809,7 +809,7 @@ int mch_emit_header_with_options(FILE *out, const struct btf *btf,
       .out = out,
       .btf = btf,
       .required = required,
-      .member_filter = options == NULL ? NULL : options->member_filter,
+      .requirements = options == NULL ? NULL : options->requirements,
       .record_state = NULL,
       .fwd_state = NULL,
       .typedef_state = NULL,

@@ -103,6 +103,10 @@ int mch_cli_parse(int argc, char **argv, struct mch_cli_options *opts, struct mc
       opts->stats = true;
       continue;
     }
+    if (strcmp(arg, "--explain") == 0) {
+      opts->explain = true;
+      continue;
+    }
     if (strcmp(arg, "--expand-pointers") == 0) {
       opts->expand_pointers = true;
       continue;
@@ -233,6 +237,7 @@ void mch_cli_print_help(FILE *out, const char *argv0) {
   fprintf(out, "                  Write the generated header to FILE\n");
   fprintf(out, "      --expand-pointers\n");
   fprintf(out, "                  Also include pointee types in dependency closure\n");
+  fprintf(out, "      --explain   Print a requirement witness to stderr\n");
   fprintf(out, "      --stats      Print a short generation summary to stderr\n");
   fprintf(out, "\nExample:\n");
   fprintf(out, "  %s --btf /sys/kernel/btf/vmlinux -o vmlinux.h foo.bpf.o\n", prog);

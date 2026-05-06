@@ -37,7 +37,7 @@ set(MIN_COREHDR_HEADERS
   include/min_corehdr/closure.h
   include/min_corehdr/emitter.h
   include/min_corehdr/error.h
-  include/min_corehdr/member_filter.h
+  include/min_corehdr/requirements.h
   include/min_corehdr/seeds.h
   include/min_corehdr/type_set.h
 )
@@ -49,14 +49,16 @@ set(MIN_COREHDR_LIB_SOURCES
   src/closure.c
   src/emitter.c
   src/error.c
-  src/member_filter.c
+  src/requirements.c
   src/seeds.c
   src/type_set.c
 )
 
 set(MIN_COREHDR_FORMAT_FILES
+  examples/minimal/bpf_helpers.h
   examples/minimal/local_types.h
   examples/minimal/exec_audit.bpf.c
+  examples/minimal/task_snapshot.bpf.c
   src/main.c
   ${MIN_COREHDR_LIB_SOURCES}
   ${MIN_COREHDR_HEADERS}
@@ -67,6 +69,7 @@ set(MIN_COREHDR_FORMAT_FILES
   tests/test_emitter_private.c
   tests/test_error.c
   tests/test_main.c
+  tests/test_requirements.c
   tests/test_btf_index.c
   tests/test_btf_loader.c
   tests/test_seeds.c
@@ -143,6 +146,9 @@ if(BUILD_TESTING)
   add_executable(test-seeds tests/test_seeds.c)
   target_link_libraries(test-seeds PRIVATE min-corehdr-core)
 
+  add_executable(test-requirements tests/test_requirements.c)
+  target_link_libraries(test-requirements PRIVATE min-corehdr-core)
+
   add_library(test-seeds-private-seeds OBJECT src/seeds.c)
   target_compile_definitions(test-seeds-private-seeds PRIVATE MCH_PRIVATE=)
   target_include_directories(test-seeds-private-seeds PRIVATE include)
@@ -153,7 +159,7 @@ if(BUILD_TESTING)
     src/btf_index.c
     src/btf_loader.c
     src/error.c
-    src/member_filter.c
+    src/requirements.c
     src/type_set.c
   )
   target_include_directories(test-seeds-private PRIVATE include)
@@ -169,8 +175,9 @@ if(BUILD_TESTING)
   add_executable(test-closure-private
     tests/test_closure_private.c
     $<TARGET_OBJECTS:test-closure-private-closure>
+    src/btf_loader.c
     src/error.c
-    src/member_filter.c
+    src/requirements.c
     src/type_set.c
   )
   target_include_directories(test-closure-private PRIVATE include)
@@ -188,7 +195,7 @@ if(BUILD_TESTING)
     $<TARGET_OBJECTS:test-emitter-private-emitter>
     src/btf_loader.c
     src/error.c
-    src/member_filter.c
+    src/requirements.c
     src/type_set.c
   )
   target_include_directories(test-emitter-private PRIVATE include)
@@ -222,6 +229,7 @@ if(BUILD_TESTING)
   add_test(NAME btf-index COMMAND test-btf-index)
   add_test(NAME btf-loader COMMAND test-btf-loader)
   add_test(NAME seeds COMMAND test-seeds)
+  add_test(NAME requirements COMMAND test-requirements)
   add_test(NAME seeds-private COMMAND test-seeds-private)
   add_test(NAME closure COMMAND test-closure)
   add_test(NAME closure-private COMMAND test-closure-private)

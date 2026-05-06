@@ -192,7 +192,27 @@ Example:
 
 min-corehdr --btf /sys/kernel/btf/vmlinux --stats foo.bpf.o > vmlinux.h
 
-6.4 --expand-pointers
+6.4 --explain
+
+Optional.
+
+Print a human-readable requirement witness to stderr after successful generation.
+
+The witness describes direct object-derived requirements, such as root kernel types and CO-RE
+record members, that caused the generated header to include type surface.
+
+Rules:
+
+* not machine-stable in v0.1
+* must never be mixed into stdout header output
+* must remain deterministic for identical inputs
+* must be concise enough for review in normal CI logs
+
+Example:
+
+min-corehdr --btf /sys/kernel/btf/vmlinux --explain foo.bpf.o > vmlinux.h
+
+6.5 --expand-pointers
 
 Optional.
 
@@ -232,6 +252,7 @@ Stderr is for:
 * warnings
 * verbose progress
 * stats
+* requirement witness output
 * non-header diagnostics
 
 This split is mandatory.
@@ -303,6 +324,7 @@ Main options:
       --btf FILE
   -o, --output FILE
       --expand-pointers
+      --explain
       --stats
 
 10. Error Message Style

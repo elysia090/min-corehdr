@@ -95,7 +95,7 @@ int main(int argc, char **argv) {
   struct mch_btf_doc base;
   struct mch_btf_index base_index;
   struct mch_type_set required;
-  struct mch_member_filter member_filter;
+  struct mch_requirements requirements;
   struct mch_seed_stats seed_total;
   struct mch_closure_stats closure_stats;
   struct mch_closure_options closure_options;
@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
   mch_btf_doc_init(&base);
   mch_btf_index_init_empty(&base_index);
   memset(&required, 0, sizeof(required));
-  memset(&member_filter, 0, sizeof(member_filter));
+  memset(&requirements, 0, sizeof(requirements));
   mch_seed_stats_init(&seed_total);
   mch_closure_stats_init(&closure_stats);
   closure_options = (struct mch_closure_options){0};
@@ -144,12 +144,12 @@ int main(int argc, char **argv) {
     mch_error_set(&err, "out of memory while preparing required type set");
     goto out;
   }
-  if (mch_member_filter_init(&member_filter, btf__type_cnt(base.btf)) != 0) {
-    mch_error_set(&err, "out of memory while preparing required member set");
+  if (mch_requirements_init(&requirements, btf__type_cnt(base.btf)) != 0) {
+    mch_error_set(&err, "out of memory while preparing requirements");
     goto out;
   }
-  closure_options.member_filter = &member_filter;
-  emit_options.member_filter = &member_filter;
+  closure_options.requirements = &requirements;
+  emit_options.requirements = &requirements;
 
   for (size_t i = 0; i < opts.object_count; i++) {
     struct mch_btf_doc object;
@@ -165,14 +165,14 @@ int main(int argc, char **argv) {
       mch_btf_doc_destroy(&object);
       goto out;
     }
-    if (mch_extract_object_seeds(&base_index, object.btf, opts.objects[i], &required, &stats,
-                                 &err) != 0) {
+    if (mch_extract_object_seeds_with_requirements(&base_index, object.btf, opts.objects[i],
+                                                   &required, &requirements, &stats, &err) != 0) {
       mch_btf_doc_destroy(&object);
       goto out;
     }
-    if (mch_extract_core_relo_seeds_with_members(&base_index, object.btf, object.ext,
-                                                 opts.objects[i], &required, &member_filter, &stats,
-                                                 &err) != 0) {
+    if (mch_extract_core_relo_seeds_with_requirements(&base_index, object.btf, object.ext,
+                                                      opts.objects[i], &required, &requirements,
+                                                      &stats, &err) != 0) {
       mch_btf_doc_destroy(&object);
       goto out;
     }
@@ -210,13 +210,24 @@ int main(int argc, char **argv) {
     goto out;
   }
 
+  if (opts.explain &&
+      mch_requirements_write_explanation(stderr, base.btf, &requirements, &err) != 0) {
+    goto out;
+  }
+
   if (opts.stats) {
+    struct mch_requirement_stats requirement_stats;
+
+    mch_requirements_stats(&requirements, &requirement_stats);
     fprintf(stderr, "objects: %zu\n", opts.object_count);
     fprintf(stderr, "seed candidates: %zu\n", seed_total.candidates);
     fprintf(stderr, "kernel seed types: %zu\n", seed_total.kernel_types);
     fprintf(stderr, "program-local candidates: %zu\n", seed_total.program_local_types);
     fprintf(stderr, "CO-RE relocations: %zu\n", seed_total.core_relocations);
     fprintf(stderr, "CO-RE root types: %zu\n", seed_total.core_kernel_types);
+    fprintf(stderr, "requirement root types: %zu\n", requirement_stats.type_roots);
+    fprintf(stderr, "required record members: %zu\n", requirement_stats.record_members);
+    fprintf(stderr, "requirement traces: %zu\n", requirement_stats.traces);
     fprintf(stderr, "emitted required types: %zu\n", required.selected);
     fprintf(stderr, "closure additions: %zu\n", closure_stats.added_types);
   }
@@ -227,7 +238,7 @@ out:
   if (rc != 0) {
     mch_error_print(stderr, &err);
   }
-  mch_member_filter_destroy(&member_filter);
+  mch_requirements_destroy(&requirements);
   mch_type_set_destroy(&required);
   mch_btf_index_destroy(&base_index);
   mch_btf_doc_destroy(&base);

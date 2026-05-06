@@ -8,7 +8,7 @@
 #include <linux/btf.h>
 
 #include "min_corehdr/error.h"
-#include "min_corehdr/member_filter.h"
+#include "min_corehdr/requirements.h"
 #include "min_corehdr/type_set.h"
 
 #ifndef BTF_INFO_ENC
@@ -20,7 +20,7 @@ struct emit_ctx {
   FILE *out;
   const struct btf *btf;
   const struct mch_type_set *required;
-  const struct mch_member_filter *member_filter;
+  const struct mch_requirements *requirements;
   unsigned char *record_state;
   unsigned char *fwd_state;
   unsigned char *typedef_state;

@@ -48,6 +48,8 @@ struct task_struct {
   struct list_head tasks;
   struct mm_struct *mm;
   const struct cred *real_cred;
+  struct task_struct *real_parent;
+  struct task_struct *group_leader;
 } __pai;
 
 #endif

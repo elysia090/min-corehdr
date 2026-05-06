@@ -53,13 +53,13 @@ smoke gates on GitHub Actions.
 ## Try the Minimal Example
 
 For a first end-to-end run, use `examples/minimal`. It contains a small hand-written CO-RE
-`local_types.h` plus an `exec` tracepoint/ringbuf BPF source that exercises field access,
-`sizeof`, enum usage, typedef chains, by-value embedded structs/unions, an anonymous nested
-record, and generated-header recompilation.
+`local_types.h`, shared helper shims, and two ringbuf-based tracepoint BPF programs. The workflow
+builds both objects, generates one replacement local type header with `--explain --stats`, and then
+recompiles both programs against that generated header.
 
 ```sh
 cmake --build --preset dev
-sh tests/example_smoke.sh build/dev/min-corehdr
+sh examples/minimal/build.sh build/dev/min-corehdr
 ```
 
 The same example is wired into CTest as `example-smoke`; it skips automatically when the local
@@ -72,6 +72,10 @@ min-corehdr --btf /sys/kernel/btf/vmlinux -o vmlinux.h foo.bpf.o
 ```
 
 Without `-o`, the generated header is written to stdout and diagnostics stay on stderr.
+
+Use `--explain` to print a concise requirement witness to stderr after generation. It lists the
+object-BTF and CO-RE roots, required record members, relocation kind, access string, and source
+location or object path that made the generated header compile-complete.
 
 Use `--expand-pointers` when you prefer conservative compile-time coverage over the smallest
 possible header. The default keeps pointer targets as forward declarations unless they are reached
@@ -87,6 +91,7 @@ Implemented now:
 - object-local BTF seed extraction with v0.1 exact name/kind resolution and local typedef-chain unwrapping
 - CO-RE relocation root extraction from `.BTF.ext`
 - CO-RE field relocation-driven record member pruning, including target anonymous record descent
+- requirement witness output for object-BTF roots, CO-RE roots, and required record members
 - source-aware failure diagnostics from `.BTF.ext` function and line metadata, including the
   object-BTF type, base-BTF lookup, and CO-RE relocation ordinal when available
 - worklist-based conservative dependency closure over base BTF

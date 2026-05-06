@@ -201,6 +201,7 @@ False negatives are not.
 * -o, --output <path>: output file path
 * --verbose: human-readable extraction details
 * --stats: summary counts and size reduction information
+* --explain: human-readable requirement witness on stderr
 
 7.3 v0.1 Input Rules
 
@@ -244,14 +245,15 @@ v0.1 does not guarantee:
 
 9. Functional Model
 
-The required type set is defined as:
+The required type set is derived from object requirements:
 
-required_types = closure(object_btf_types ∪ core_relo_types)
+requirements = object_btf_requirements ∪ core_relo_requirements
+required_types = closure(requirements)
 
 where:
 
-* object_btf_types are kernel-facing types referenced by object-local BTF in ways relevant to compilation
-* core_relo_types are types referenced by CO-RE relocation metadata
+* object_btf_requirements are kernel-facing requirements referenced by object-local BTF in ways relevant to compilation
+* core_relo_requirements are requirements referenced by CO-RE relocation metadata
 * closure(...) is the transitive dependency closure required to emit a valid compile-complete local header
 
 This is the core semantic model of the tool.
@@ -259,6 +261,80 @@ This is the core semantic model of the tool.
 The purpose of the tool is not to discover every type that exists in the target kernel.
 
 The purpose is to discover the smallest practical local type universe needed to rebuild the input BPF objects correctly.
+
+9.1 Requirement Analysis
+
+The tool should make object-derived requirements explicit before dependency closure and C emission.
+
+A requirement is a small, inspectable statement about what the generated header must provide. The
+initial v0.1 requirement kinds are:
+
+* a kernel type must be available as a root type
+* a record definition must include a specific member
+
+Future requirement kinds may cover:
+
+* a record definition is required in full
+* a forward declaration is sufficient
+* a typedef definition is required
+* an enum definition or enumerator is required
+
+Requirements are not a second source of type truth. They reference base-BTF type IDs and member
+indexes after object-to-base resolution succeeds. The base BTF remains the source of layout,
+names, enum values, member types, and emission order.
+
+Requirements must preserve their source when practical:
+
+* object BTF candidate
+* CO-RE relocation kind
+* CO-RE access string
+* object path
+* source location when .BTF.ext line info is available
+
+This source trace exists so future diagnostics and `--explain` output can describe why a type or
+member was emitted. It must stay optional for v0.1 output and must not become a large reporting
+framework before there is a concrete user-facing need.
+
+9.1.1 Requirement Witness
+
+When requested with `--explain`, the tool should print a human-readable requirement witness to
+stderr after successful generation.
+
+The witness should list the direct object-derived requirements that caused the generated header to
+include kernel-facing types or record members. It should be stable enough for humans to compare
+between runs, but it is not a machine-stable format in v0.1.
+
+The witness should include, when available:
+
+* requirement kind
+* base-BTF type name and kind
+* record member name for member requirements
+* source class, such as object BTF or CO-RE relocation
+* object path
+* CO-RE relocation kind and access string
+* source location, function, or section for CO-RE relocations when `.BTF.ext` metadata provides it
+
+The witness is not a separate verifier and must not duplicate dependency-closure logic. Closure and
+emission remain the implementation of compile-completeness; the witness records the direct
+requirements that feed them.
+
+9.2 CO-RE Field Member Requirements
+
+CO-RE field relocations provide access strings that identify the record members used by the object.
+The tool should record those members as requirements and may emit only the required members for a
+record when doing so remains compile-complete.
+
+When the target base BTF contains an anonymous struct or union wrapper that is absent from the
+object's local type view, field resolution may descend through anonymous target records to find the
+named member. If this happens, the generated header must include the anonymous wrapper path and the
+target member so the emitted C remains valid.
+
+Field-member pruning is an optimization constrained by correctness:
+
+* member pruning may shrink record definitions
+* member pruning must not remove a member required by object BTF, CO-RE metadata, or dependency closure
+* if member resolution is ambiguous or unsupported, the tool must fail or conservatively include more
+  rather than emit an incomplete header
 
 10. Seed Extraction
 
